@@ -52,15 +52,15 @@ jobs:
         run: |
           aws s3 cp \
             mithlond-agent-linux-amd64 \
-            s3://${{ env.R2_BUCKET }}/mithlond-agent/version/${{ steps.version.outputs.version }}/mithlond-agent-linux-amd64 \
+            s3://${{ env.R2_BUCKET }}/version/${{ steps.version.outputs.version }}/mithlond-agent-linux-amd64 \
             --endpoint-url ${R2_ENDPOINT}
 
           aws s3 cp \
             mithlond-agent-linux-amd64.sha256 \
-            s3://${{ env.R2_BUCKET }}/mithlond-agent/version/${{ steps.version.outputs.version }}/mithlond-agent-linux-amd64.sha256 \
+            s3://${{ env.R2_BUCKET }}/version/${{ steps.version.outputs.version }}/mithlond-agent-linux-amd64.sha256 \
             --endpoint-url ${R2_ENDPOINT}
 
           aws s3 cp \
             latest.txt \
-            s3://${{ env.R2_BUCKET }}/mithlond-agent/version/latest \
+            s3://${{ env.R2_BUCKET }}/version/latest \
             --endpoint-url ${R2_ENDPOINT}
