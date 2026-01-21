@@ -1,0 +1,50 @@
+openapi: 3.1.0
+info:
+  title: Mithlond Agent API
+  version: 0.1.0
+  description: |
+    Server agent API for handling deployments, updates, and health checks.
+    This agent is installed on servers/VPS instances and communicates with the Mithlond platform.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for authenticating requests from the Mithlond platform
+
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - version
+      properties:
+        status:
+          type: string
+          enum: [healthy]
+          example: healthy
+        version:
+          type: string
+          example: "0.1.0"
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Health check
+      description: Returns the health status and version of the agent. This endpoint is unauthenticated.
+      tags:
+        - Health
+      responses:
+        "200":
+          description: Agent is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
