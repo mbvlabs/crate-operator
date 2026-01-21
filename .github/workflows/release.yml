@@ -41,23 +41,26 @@ jobs:
         run: |
           sha256sum mithlond-agent-linux-amd64 | awk '{print $1}' > mithlond-agent-linux-amd64.sha256
 
-      - name: Upload binary to Cloudflare R2
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: r2 object put ${{ env.R2_BUCKET }}/mithlond-agent/version/${{ steps.version.outputs.version }}/mithlond-agent-linux-amd64 --file=mithlond-agent-linux-amd64
-
-      - name: Upload checksum to Cloudflare R2
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: r2 object put ${{ env.R2_BUCKET }}/mithlond-agent/version/${{ steps.version.outputs.version }}/mithlond-agent-linux-amd64.sha256 --file=mithlond-agent-linux-amd64.sha256
-
-      - name: Upload latest version pointer
+      - name: Create latest pointer
         run: echo -n "${{ steps.version.outputs.version }}" > latest.txt
 
-      - name: Upload latest.txt to Cloudflare R2
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: r2 object put ${{ env.R2_BUCKET }}/mithlond-agent/version/latest --file=latest.txt
+      - name: Upload to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          aws s3 cp \
+            mithlond-agent-linux-amd64 \
+            s3://${{ env.R2_BUCKET }}/mithlond-agent/version/${{ steps.version.outputs.version }}/mithlond-agent-linux-amd64 \
+            --endpoint-url ${R2_ENDPOINT}
+
+          aws s3 cp \
+            mithlond-agent-linux-amd64.sha256 \
+            s3://${{ env.R2_BUCKET }}/mithlond-agent/version/${{ steps.version.outputs.version }}/mithlond-agent-linux-amd64.sha256 \
+            --endpoint-url ${R2_ENDPOINT}
+
+          aws s3 cp \
+            latest.txt \
+            s3://${{ env.R2_BUCKET }}/mithlond-agent/version/latest \
+            --endpoint-url ${R2_ENDPOINT}
