@@ -1,4 +1,5 @@
 # Mithlond Agent development commands
+set dotenv-load
 
 # Default recipe - show available commands
 default:
