@@ -1,4 +1,4 @@
-openapi: 3.1.0
+openapi: 3.0.0
 info:
   title: Mithlond Agent API
   version: 0.1.0
@@ -41,7 +41,6 @@ components:
       required:
         - app_slug
         - service_name
-        - exec_path
         - artifact_source
         - artifact_version
         - port
@@ -49,8 +48,6 @@ components:
         app_slug:
           type: string
         service_name:
-          type: string
-        exec_path:
           type: string
         artifact_source:
           type: string
@@ -81,8 +78,6 @@ components:
         artifact_source:
           type: string
         artifact_version:
-          type: string
-        exec_path:
           type: string
         args:
           type: array
