@@ -27,6 +27,10 @@ func main() {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+	if cfg.APIKey == "" {
+		slog.Error("missing API key", "env", "MITHLOND_API_KEY")
+		os.Exit(1)
+	}
 
 	handler := api.NewAPIHandler(buildVersion)
 	server.SetOpenAPISpec(openapiSpec)

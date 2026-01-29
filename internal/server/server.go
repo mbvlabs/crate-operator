@@ -40,6 +40,7 @@ func (s *Server) Start() error {
 	var h http.Handler = apiHandler
 	h = s.requestLoggingMiddleware(h)
 	h = s.requestIDMiddleware(h)
+	h = s.apiKeyMiddleware(h)
 
 	s.httpServer = &http.Server{
 		Addr:         s.cfg.BindAddr,
@@ -86,6 +87,20 @@ func (s *Server) requestLoggingMiddleware(next http.Handler) http.Handler {
 			"duration", time.Since(start),
 			"request_id", r.Context().Value(requestIDKey),
 		)
+	})
+}
+
+func (s *Server) apiKeyMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiKey := r.Header.Get("X-API-Key")
+		if apiKey == "" || apiKey != s.cfg.APIKey {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"unauthorized"}`))
+			return
+		}
+
+		next.ServeHTTP(w, r)
 	})
 }
 
