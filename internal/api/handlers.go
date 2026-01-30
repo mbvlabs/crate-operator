@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -33,44 +32,78 @@ func NewAPIHandler(version string) *APIHandler {
 func (h *APIHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	var req UpdateAgentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeUpdateResponse(w, http.StatusBadRequest, "error", fmt.Sprintf("invalid request body: %v", err))
+		writeUpdateResponse(
+			w,
+			http.StatusBadRequest,
+			"error",
+			fmt.Sprintf("invalid request body: %v", err),
+		)
 		return
 	}
 
 	if strings.TrimSpace(req.ArtifactSource) == "" || strings.TrimSpace(req.ArtifactVersion) == "" {
-		writeUpdateResponse(w, http.StatusBadRequest, "error", "artifact_source and artifact_version are required")
+		writeUpdateResponse(
+			w,
+			http.StatusBadRequest,
+			"error",
+			"artifact_source and artifact_version are required",
+		)
 		return
 	}
 
 	binaryName := agentBinaryName()
 	tempPath := fmt.Sprintf("/tmp/mithlond-agent.%s", req.ArtifactVersion)
 
-	binaryURL, checksumURL, err := buildArtifactURLs(req.ArtifactSource, req.ArtifactVersion, binaryName)
+	binaryURL, checksumURL, err := buildArtifactURLs(
+		req.ArtifactSource,
+		req.ArtifactVersion,
+		binaryName,
+	)
 	if err != nil {
 		writeUpdateResponse(w, http.StatusBadRequest, "error", err.Error())
 		return
 	}
 
 	if err := downloadToFile(r.Context(), binaryURL, tempPath); err != nil {
-		writeUpdateResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to download binary: %v", err))
+		writeUpdateResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to download binary: %v", err),
+		)
 		return
 	}
 
 	checksumBytes, err := fetchBytes(r.Context(), checksumURL)
 	if err != nil {
 		_ = os.Remove(tempPath)
-		writeUpdateResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to download checksum: %v", err))
+		writeUpdateResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to download checksum: %v", err),
+		)
 		return
 	}
 
 	if err := verifyChecksum(tempPath, string(checksumBytes)); err != nil {
 		_ = os.Remove(tempPath)
-		writeUpdateResponse(w, http.StatusBadRequest, "error", fmt.Sprintf("checksum verification failed: %v", err))
+		writeUpdateResponse(
+			w,
+			http.StatusBadRequest,
+			"error",
+			fmt.Sprintf("checksum verification failed: %v", err),
+		)
 		return
 	}
 
 	if err := os.Chmod(tempPath, 0o755); err != nil {
-		writeUpdateResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to chmod binary: %v", err))
+		writeUpdateResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to chmod binary: %v", err),
+		)
 		return
 	}
 
@@ -94,7 +127,7 @@ func (h *APIHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func agentBinaryName() string {
-	return fmt.Sprintf("mithlond-agent-%s-%s", runtime.GOOS, runtime.GOARCH)
+	return "mithlond-agent-linux-amd64"
 }
 
 func buildArtifactURLs(source, version, fileName string) (string, string, error) {
@@ -172,12 +205,28 @@ func buildSignedS3URLs(source, version, fileName string) (string, string, error)
 		region = "us-east-1"
 	}
 
-	binaryURL, err := presignS3Get(endpoint, region, accessKey, secretKey, bucket, key, 15*time.Minute)
+	binaryURL, err := presignS3Get(
+		endpoint,
+		region,
+		accessKey,
+		secretKey,
+		bucket,
+		key,
+		15*time.Minute,
+	)
 	if err != nil {
 		return "", "", err
 	}
 
-	checksumURL, err := presignS3Get(endpoint, region, accessKey, secretKey, bucket, key+".sha256", 15*time.Minute)
+	checksumURL, err := presignS3Get(
+		endpoint,
+		region,
+		accessKey,
+		secretKey,
+		bucket,
+		key+".sha256",
+		15*time.Minute,
+	)
 	if err != nil {
 		return "", "", err
 	}
@@ -248,7 +297,11 @@ func verifyChecksum(filePath string, expectedChecksum string) error {
 	expectedChecksum = strings.TrimSpace(strings.Split(expectedChecksum, " ")[0])
 
 	if actualChecksum != expectedChecksum {
-		return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedChecksum, actualChecksum)
+		return fmt.Errorf(
+			"checksum mismatch: expected %s, got %s",
+			expectedChecksum,
+			actualChecksum,
+		)
 	}
 
 	return nil
@@ -289,7 +342,10 @@ func writeUpdateResponse(w http.ResponseWriter, statusCode int, status string, m
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func presignS3Get(endpoint, region, accessKey, secretKey, bucket, key string, ttl time.Duration) (string, error) {
+func presignS3Get(
+	endpoint, region, accessKey, secretKey, bucket, key string,
+	ttl time.Duration,
+) (string, error) {
 	baseURL, err := url.Parse(endpoint)
 	if err != nil {
 		return "", err
@@ -367,7 +423,10 @@ func (h *APIHandler) GetNodeMetrics(w http.ResponseWriter, r *http.Request) {
 	result := make(map[string]interface{})
 
 	for _, query := range queries {
-		queryURL := fmt.Sprintf("http://localhost:9090/api/v1/query?query=%s", url.QueryEscape(query))
+		queryURL := fmt.Sprintf(
+			"http://localhost:9090/api/v1/query?query=%s",
+			url.QueryEscape(query),
+		)
 		resp, err := http.Get(queryURL)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
@@ -381,7 +440,8 @@ func (h *APIHandler) GetNodeMetrics(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "failed to read prometheus response"})
+			json.NewEncoder(w).
+				Encode(map[string]string{"error": "failed to read prometheus response"})
 			return
 		}
 
@@ -389,7 +449,8 @@ func (h *APIHandler) GetNodeMetrics(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(body, &queryResult); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "failed to parse prometheus response"})
+			json.NewEncoder(w).
+				Encode(map[string]string{"error": "failed to parse prometheus response"})
 			return
 		}
 
