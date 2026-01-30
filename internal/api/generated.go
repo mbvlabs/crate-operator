@@ -20,64 +20,6 @@ const (
 	Healthy HealthResponseStatus = "healthy"
 )
 
-// AppActionRequest defines model for AppActionRequest.
-type AppActionRequest struct {
-	AppSlug string `json:"app_slug"`
-}
-
-// AppActionResponse defines model for AppActionResponse.
-type AppActionResponse struct {
-	Message *string `json:"message,omitempty"`
-	Output  *string `json:"output,omitempty"`
-	Status  *string `json:"status,omitempty"`
-}
-
-// CreateBinaryAppRequest defines model for CreateBinaryAppRequest.
-type CreateBinaryAppRequest struct {
-	AppSlug         string             `json:"app_slug"`
-	Args            *[]string          `json:"args,omitempty"`
-	ArtifactSource  string             `json:"artifact_source"`
-	ArtifactVersion string             `json:"artifact_version"`
-	EnvVars         *map[string]string `json:"env_vars,omitempty"`
-	HealthcheckUrl  *string            `json:"healthcheck_url,omitempty"`
-	Port            int                `json:"port"`
-	ServiceName     string             `json:"service_name"`
-}
-
-// CreateDockerAppRequest defines model for CreateDockerAppRequest.
-type CreateDockerAppRequest struct {
-	AppSlug         string             `json:"app_slug"`
-	ArtifactSource  string             `json:"artifact_source"`
-	ArtifactVersion string             `json:"artifact_version"`
-	DockerCommand   *[]string          `json:"docker_command,omitempty"`
-	EnvVars         *map[string]string `json:"env_vars,omitempty"`
-	Port            int                `json:"port"`
-	Ports           *[]string          `json:"ports,omitempty"`
-	Volumes         *[]string          `json:"volumes,omitempty"`
-}
-
-// DeployBinaryAppRequest defines model for DeployBinaryAppRequest.
-type DeployBinaryAppRequest struct {
-	AppSlug         string    `json:"app_slug"`
-	Args            *[]string `json:"args,omitempty"`
-	ArtifactSource  string    `json:"artifact_source"`
-	ArtifactVersion string    `json:"artifact_version"`
-}
-
-// DeployDockerAppRequest defines model for DeployDockerAppRequest.
-type DeployDockerAppRequest struct {
-	AppSlug         string `json:"app_slug"`
-	ArtifactSource  string `json:"artifact_source"`
-	ArtifactVersion string `json:"artifact_version"`
-}
-
-// DeployResponse defines model for DeployResponse.
-type DeployResponse struct {
-	Logs    *string `json:"logs,omitempty"`
-	Message *string `json:"message,omitempty"`
-	Status  *string `json:"status,omitempty"`
-}
-
 // GenericObject defines model for GenericObject.
 type GenericObject map[string]interface{}
 
@@ -105,53 +47,11 @@ type UpdateAgentResponse struct {
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
 type UpdateAgentJSONRequestBody = UpdateAgentRequest
 
-// CreateBinaryAppJSONRequestBody defines body for CreateBinaryApp for application/json ContentType.
-type CreateBinaryAppJSONRequestBody = CreateBinaryAppRequest
-
-// CreateDockerAppJSONRequestBody defines body for CreateDockerApp for application/json ContentType.
-type CreateDockerAppJSONRequestBody = CreateDockerAppRequest
-
-// DeployBinaryAppJSONRequestBody defines body for DeployBinaryApp for application/json ContentType.
-type DeployBinaryAppJSONRequestBody = DeployBinaryAppRequest
-
-// DeployDockerAppJSONRequestBody defines body for DeployDockerApp for application/json ContentType.
-type DeployDockerAppJSONRequestBody = DeployDockerAppRequest
-
-// RestartAppJSONRequestBody defines body for RestartApp for application/json ContentType.
-type RestartAppJSONRequestBody = AppActionRequest
-
-// StartAppJSONRequestBody defines body for StartApp for application/json ContentType.
-type StartAppJSONRequestBody = AppActionRequest
-
-// StopAppJSONRequestBody defines body for StopApp for application/json ContentType.
-type StopAppJSONRequestBody = AppActionRequest
-
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// Update agent binary
 	// (POST /agent/update)
 	UpdateAgent(w http.ResponseWriter, r *http.Request)
-	// Create binary app (install and start)
-	// (POST /app/create/binary)
-	CreateBinaryApp(w http.ResponseWriter, r *http.Request)
-	// Create docker app (install and start)
-	// (POST /app/create/docker)
-	CreateDockerApp(w http.ResponseWriter, r *http.Request)
-	// Deploy binary app (update and restart)
-	// (POST /app/deploy/binary)
-	DeployBinaryApp(w http.ResponseWriter, r *http.Request)
-	// Deploy docker app (update and restart)
-	// (POST /app/deploy/docker)
-	DeployDockerApp(w http.ResponseWriter, r *http.Request)
-	// Restart app service
-	// (POST /app/restart)
-	RestartApp(w http.ResponseWriter, r *http.Request)
-	// Start app service
-	// (POST /app/start)
-	StartApp(w http.ResponseWriter, r *http.Request)
-	// Stop app service
-	// (POST /app/stop)
-	StopApp(w http.ResponseWriter, r *http.Request)
 	// Health check
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
@@ -180,146 +80,6 @@ func (siw *ServerInterfaceWrapper) UpdateAgent(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateAgent(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateBinaryApp operation middleware
-func (siw *ServerInterfaceWrapper) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateBinaryApp(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateDockerApp operation middleware
-func (siw *ServerInterfaceWrapper) CreateDockerApp(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateDockerApp(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeployBinaryApp operation middleware
-func (siw *ServerInterfaceWrapper) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeployBinaryApp(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeployDockerApp operation middleware
-func (siw *ServerInterfaceWrapper) DeployDockerApp(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeployDockerApp(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// RestartApp operation middleware
-func (siw *ServerInterfaceWrapper) RestartApp(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RestartApp(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// StartApp operation middleware
-func (siw *ServerInterfaceWrapper) StartApp(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.StartApp(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// StopApp operation middleware
-func (siw *ServerInterfaceWrapper) StopApp(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, ApiKeyAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.StopApp(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -490,13 +250,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	}
 
 	m.HandleFunc("POST "+options.BaseURL+"/agent/update", wrapper.UpdateAgent)
-	m.HandleFunc("POST "+options.BaseURL+"/app/create/binary", wrapper.CreateBinaryApp)
-	m.HandleFunc("POST "+options.BaseURL+"/app/create/docker", wrapper.CreateDockerApp)
-	m.HandleFunc("POST "+options.BaseURL+"/app/deploy/binary", wrapper.DeployBinaryApp)
-	m.HandleFunc("POST "+options.BaseURL+"/app/deploy/docker", wrapper.DeployDockerApp)
-	m.HandleFunc("POST "+options.BaseURL+"/app/restart", wrapper.RestartApp)
-	m.HandleFunc("POST "+options.BaseURL+"/app/start", wrapper.StartApp)
-	m.HandleFunc("POST "+options.BaseURL+"/app/stop", wrapper.StopApp)
 	m.HandleFunc("GET "+options.BaseURL+"/health", wrapper.GetHealth)
 	m.HandleFunc("GET "+options.BaseURL+"/metrics/node", wrapper.GetNodeMetrics)
 

@@ -255,8 +255,8 @@ func verifyChecksum(filePath string, expectedChecksum string) error {
 }
 
 func installAgentBinary(binaryPath string) error {
-	currentBinary := "/usr/local/bin/mithlond-agent"
-	backupBinary := "/usr/local/bin/mithlond-agent.backup"
+	currentBinary := "/opt/mithlond-agent/mithlond-agent"
+	backupBinary := "/opt/mithlond-agent/mithlond-agent.backup"
 
 	if err := os.Rename(currentBinary, backupBinary); err != nil {
 		return fmt.Errorf("failed to backup current binary: %w", err)
@@ -352,6 +352,52 @@ func hmacSHA256(key []byte, data string) []byte {
 	mac := hmac.New(sha256.New, key)
 	mac.Write([]byte(data))
 	return mac.Sum(nil)
+}
+
+// GetNodeMetrics implements ServerInterface.
+func (h *APIHandler) GetNodeMetrics(w http.ResponseWriter, r *http.Request) {
+	queries := []string{
+		"node_memory_MemAvailable_bytes",
+		"node_memory_MemTotal_bytes",
+		`node_filesystem_avail_bytes{mountpoint="/"}`,
+		`node_filesystem_size_bytes{mountpoint="/"}`,
+		`node_cpu_seconds_total{mode="idle"}`,
+	}
+
+	result := make(map[string]interface{})
+
+	for _, query := range queries {
+		queryURL := fmt.Sprintf("http://localhost:9090/api/v1/query?query=%s", url.QueryEscape(query))
+		resp, err := http.Get(queryURL)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{"error": "prometheus not available"})
+			return
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to read prometheus response"})
+			return
+		}
+
+		var queryResult map[string]interface{}
+		if err := json.Unmarshal(body, &queryResult); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to parse prometheus response"})
+			return
+		}
+
+		result[query] = queryResult
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
 
 // Ensure APIHandler implements ServerInterface
