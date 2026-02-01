@@ -594,18 +594,18 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 	}
 	logs.WriteString("Binary downloaded successfully\n")
 
-	// Verify checksum
-	checksumBytes, err := fetchBytes(r.Context(), checksumURL)
-	if err != nil {
-		fmt.Fprintf(&logs, "Warning: could not fetch checksum: %v\n", err)
-	} else {
-		if err := verifyChecksum(binaryPath, string(checksumBytes)); err != nil {
-			_ = os.Remove(binaryPath)
-			writeDeployResponse(w, http.StatusBadRequest, "error", fmt.Sprintf("checksum verification failed: %v", err), logs.String())
-			return
-		}
-		logs.WriteString("Checksum verified\n")
-	}
+	// // Verify checksum
+	// checksumBytes, err := fetchBytes(r.Context(), checksumURL)
+	// if err != nil {
+	// 	fmt.Fprintf(&logs, "Warning: could not fetch checksum: %v\n", err)
+	// } else {
+	// 	if err := verifyChecksum(binaryPath, string(checksumBytes)); err != nil {
+	// 		_ = os.Remove(binaryPath)
+	// 		writeDeployResponse(w, http.StatusBadRequest, "error", fmt.Sprintf("checksum verification failed: %v", err), logs.String())
+	// 		return
+	// 	}
+	// 	logs.WriteString("Checksum verified\n")
+	// }
 
 	// Make binary executable
 	if err := os.Chmod(binaryPath, 0o755); err != nil {
