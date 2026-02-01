@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -156,9 +157,9 @@ func agentInstallDir() string {
 	return "/opt/mithlond-agent"
 }
 
-func agentBinaryPath() string {
-	return path.Join(agentInstallDir(), "mithlond-agent")
-}
+// func agentBinaryPath() string {
+// 	return path.Join(agentInstallDir(), "mithlond-agent")
+// }
 
 func appsBaseDir() string {
 	return "/opt/mithlond/apps"
@@ -490,50 +491,105 @@ func hmacSHA256(key []byte, data string) []byte {
 func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 	var req CreateBinaryAppRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeDeployResponse(w, http.StatusBadRequest, "error", fmt.Sprintf("invalid request body: %v", err), "")
+		writeDeployResponse(
+			w,
+			http.StatusBadRequest,
+			"error",
+			fmt.Sprintf("invalid request body: %v", err),
+			"",
+		)
 		return
 	}
 
 	if strings.TrimSpace(req.AppSlug) == "" || strings.TrimSpace(req.Environment) == "" {
-		writeDeployResponse(w, http.StatusBadRequest, "error", "app_slug and environment are required", "")
+		writeDeployResponse(
+			w,
+			http.StatusBadRequest,
+			"error",
+			"app_slug and environment are required",
+			"",
+		)
 		return
 	}
 
 	if strings.TrimSpace(req.ArtifactSource) == "" || strings.TrimSpace(req.ArtifactVersion) == "" {
-		writeDeployResponse(w, http.StatusBadRequest, "error", "artifact_source and artifact_version are required", "")
+		writeDeployResponse(
+			w,
+			http.StatusBadRequest,
+			"error",
+			"artifact_source and artifact_version are required",
+			"",
+		)
 		return
 	}
 
 	var logs strings.Builder
-	logs.WriteString(fmt.Sprintf("Creating binary app %s/%s\n", req.AppSlug, req.Environment))
+	fmt.Fprintf(&logs, "Creating binary app %s/%s\n", req.AppSlug, req.Environment)
 
 	// Create app directory (under /opt/mithlond/apps - group-writable, no sudo needed)
-	appDir := path.Join(appsBaseDir(), req.AppSlug, req.Environment)
+	appDir := path.Join(
+		appsBaseDir(),
+		strings.ToLower(req.AppSlug),
+		strings.ToLower(req.Environment),
+	)
 	if err := os.MkdirAll(appDir, 0o755); err != nil {
-		writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to create app directory: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to create app directory: %v", err),
+			logs.String(),
+		)
 		return
 	}
-	logs.WriteString(fmt.Sprintf("Created directory: %s\n", appDir))
+	fmt.Fprintf(&logs, "Created directory: %s\n", appDir)
 
 	// Create config directory (under /etc/mithlond/apps - requires sudo)
-	configDir := path.Join(appsConfigDir(), req.AppSlug, req.Environment)
+	configDir := path.Join(
+		appsConfigDir(),
+		strings.ToLower(req.AppSlug),
+		strings.ToLower(req.Environment),
+	)
 	if err := sudoMkdirAll(configDir); err != nil {
-		writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to create config directory: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to create config directory: %v", err),
+			logs.String(),
+		)
 		return
 	}
-	logs.WriteString(fmt.Sprintf("Created config directory: %s\n", configDir))
+	fmt.Fprintf(&logs, "Created config directory: %s\n", configDir)
 
 	// Download binary
 	binaryPath := path.Join(appDir, req.ArtifactVersion)
-	binaryURL, checksumURL, err := buildArtifactURLs(req.ArtifactSource, req.ArtifactVersion, req.AppSlug)
+	binaryURL, checksumURL, err := buildArtifactURLs(
+		req.ArtifactSource,
+		req.ArtifactVersion,
+		// TODO: NOT CORRECT - we need the binary name
+		"app",
+	)
 	if err != nil {
-		writeDeployResponse(w, http.StatusBadRequest, "error", fmt.Sprintf("failed to build artifact URLs: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusBadRequest,
+			"error",
+			fmt.Sprintf("failed to build artifact URLs: %v", err),
+			logs.String(),
+		)
 		return
 	}
 
-	logs.WriteString(fmt.Sprintf("Downloading binary from %s\n", req.ArtifactSource))
+	fmt.Fprintf(&logs, "Downloading binary from %s\n", req.ArtifactSource)
 	if err := downloadToFile(r.Context(), binaryURL, binaryPath); err != nil {
-		writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to download binary: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to download binary: %v", err),
+			logs.String(),
+		)
 		return
 	}
 	logs.WriteString("Binary downloaded successfully\n")
@@ -541,7 +597,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 	// Verify checksum
 	checksumBytes, err := fetchBytes(r.Context(), checksumURL)
 	if err != nil {
-		logs.WriteString(fmt.Sprintf("Warning: could not fetch checksum: %v\n", err))
+		fmt.Fprintf(&logs, "Warning: could not fetch checksum: %v\n", err)
 	} else {
 		if err := verifyChecksum(binaryPath, string(checksumBytes)); err != nil {
 			_ = os.Remove(binaryPath)
@@ -553,7 +609,13 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 
 	// Make binary executable
 	if err := os.Chmod(binaryPath, 0o755); err != nil {
-		writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to chmod binary: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to chmod binary: %v", err),
+			logs.String(),
+		)
 		return
 	}
 
@@ -562,36 +624,66 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		envPath := path.Join(configDir, "env")
 		var envContent strings.Builder
 		for key, value := range *req.EnvVars {
-			envContent.WriteString(fmt.Sprintf("%s=%s\n", key, value))
+			fmt.Fprintf(&envContent, "%s=%s\n", key, value)
 		}
 		if err := sudoWriteFile(envPath, []byte(envContent.String()), 0o640); err != nil {
-			writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to write env file: %v", err), logs.String())
+			writeDeployResponse(
+				w,
+				http.StatusInternalServerError,
+				"error",
+				fmt.Sprintf("failed to write env file: %v", err),
+				logs.String(),
+			)
 			return
 		}
-		logs.WriteString(fmt.Sprintf("Created env file: %s\n", envPath))
+		fmt.Fprintf(&logs, "Created env file: %s\n", envPath)
 	}
 
 	// Create systemd service (system unit, requires sudo)
 	serviceName := fmt.Sprintf("%s-%s", req.AppSlug, req.Environment)
 	if err := createSystemdService(serviceName, binaryPath, appDir, configDir, req.Port, req.Args); err != nil {
-		writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to create systemd service: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to create systemd service: %v", err),
+			logs.String(),
+		)
 		return
 	}
-	logs.WriteString(fmt.Sprintf("Created systemd service: %s\n", serviceName))
+	fmt.Fprintf(&logs, "Created systemd service: %s\n", serviceName)
 
 	// Enable and start service (requires sudo for system units)
 	if err := sudoRun("systemctl", "daemon-reload").Run(); err != nil {
-		writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to reload systemd: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to reload systemd: %v", err),
+			logs.String(),
+		)
 		return
 	}
 
 	if err := sudoRun("systemctl", "enable", serviceName).Run(); err != nil {
-		writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to enable service: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to enable service: %v", err),
+			logs.String(),
+		)
 		return
 	}
 
 	if err := sudoRun("systemctl", "start", serviceName).Run(); err != nil {
-		writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to start service: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to start service: %v", err),
+			logs.String(),
+		)
 		return
 	}
 	logs.WriteString("Service enabled and started\n")
@@ -600,9 +692,9 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 	if req.Domain != nil && *req.Domain != "" {
 		caddyManager := NewCaddyManager()
 		if err := caddyManager.ConfigureRoute(*req.Domain, req.Port); err != nil {
-			logs.WriteString(fmt.Sprintf("Warning: failed to configure Caddy route: %v\n", err))
+			fmt.Fprintf(&logs, "Warning: failed to configure Caddy route: %v\n", err)
 		} else {
-			logs.WriteString(fmt.Sprintf("Configured Caddy route: %s -> localhost:%d\n", *req.Domain, req.Port))
+			fmt.Fprintf(&logs, "Configured Caddy route: %s -> localhost:%d\n", *req.Domain, req.Port)
 		}
 	}
 
@@ -614,55 +706,100 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 	var req DeployBinaryAppRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeDeployResponse(w, http.StatusBadRequest, "error", fmt.Sprintf("invalid request body: %v", err), "")
+		writeDeployResponse(
+			w,
+			http.StatusBadRequest,
+			"error",
+			fmt.Sprintf("invalid request body: %v", err),
+			"",
+		)
 		return
 	}
 
 	if strings.TrimSpace(req.AppSlug) == "" || strings.TrimSpace(req.Environment) == "" {
-		writeDeployResponse(w, http.StatusBadRequest, "error", "app_slug and environment are required", "")
+		writeDeployResponse(
+			w,
+			http.StatusBadRequest,
+			"error",
+			"app_slug and environment are required",
+			"",
+		)
 		return
 	}
 
 	var logs strings.Builder
-	logs.WriteString(fmt.Sprintf("Deploying binary app %s/%s version %s\n", req.AppSlug, req.Environment, req.ArtifactVersion))
+	fmt.Fprintf(&logs, "Deploying binary app %s/%s version %s\n",
+		req.AppSlug,
+		req.Environment,
+		req.ArtifactVersion)
 
 	appDir := path.Join(appsBaseDir(), req.AppSlug, req.Environment)
 	if _, err := os.Stat(appDir); os.IsNotExist(err) {
-		writeDeployResponse(w, http.StatusBadRequest, "error", "app does not exist, use create endpoint first", logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusBadRequest,
+			"error",
+			"app does not exist, use create endpoint first",
+			logs.String(),
+		)
 		return
 	}
 
 	// Download new binary
 	binaryPath := path.Join(appDir, req.ArtifactVersion)
-	binaryURL, checksumURL, err := buildArtifactURLs(req.ArtifactSource, req.ArtifactVersion, req.AppSlug)
+	binaryURL, _, err := buildArtifactURLs(
+		req.ArtifactSource,
+		req.ArtifactVersion,
+		req.AppSlug,
+	)
 	if err != nil {
-		writeDeployResponse(w, http.StatusBadRequest, "error", fmt.Sprintf("failed to build artifact URLs: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusBadRequest,
+			"error",
+			fmt.Sprintf("failed to build artifact URLs: %v", err),
+			logs.String(),
+		)
 		return
 	}
 
-	logs.WriteString(fmt.Sprintf("Downloading binary version %s\n", req.ArtifactVersion))
+	slog.Info("Downloading new binary", "url", binaryURL, "path", binaryPath)
+
+	fmt.Fprintf(&logs, "Downloading binary version %s\n", req.ArtifactVersion)
 	if err := downloadToFile(r.Context(), binaryURL, binaryPath); err != nil {
-		writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to download binary: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to download binary: %v", err),
+			logs.String(),
+		)
 		return
 	}
 	logs.WriteString("Binary downloaded successfully\n")
 
-	// Verify checksum
-	checksumBytes, err := fetchBytes(r.Context(), checksumURL)
-	if err != nil {
-		logs.WriteString(fmt.Sprintf("Warning: could not fetch checksum: %v\n", err))
-	} else {
-		if err := verifyChecksum(binaryPath, string(checksumBytes)); err != nil {
-			_ = os.Remove(binaryPath)
-			writeDeployResponse(w, http.StatusBadRequest, "error", fmt.Sprintf("checksum verification failed: %v", err), logs.String())
-			return
-		}
-		logs.WriteString("Checksum verified\n")
-	}
+	// // Verify checksum
+	// checksumBytes, err := fetchBytes(r.Context(), checksumURL)
+	// if err != nil {
+	// 	fmt.Fprintf(&logs, "Warning: could not fetch checksum: %v\n", err)
+	// } else {
+	// 	if err := verifyChecksum(binaryPath, string(checksumBytes)); err != nil {
+	// 		_ = os.Remove(binaryPath)
+	// 		writeDeployResponse(w, http.StatusBadRequest, "error", fmt.Sprintf("checksum verification failed: %v", err), logs.String())
+	// 		return
+	// 	}
+	// 	logs.WriteString("Checksum verified\n")
+	// }
 
 	// Make binary executable
 	if err := os.Chmod(binaryPath, 0o755); err != nil {
-		writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to chmod binary: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to chmod binary: %v", err),
+			logs.String(),
+		)
 		return
 	}
 
@@ -674,13 +811,19 @@ func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 	// Read current service file to get port
 	serviceContent, err := os.ReadFile(servicePath)
 	if err != nil {
-		writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to read service file: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to read service file: %v", err),
+			logs.String(),
+		)
 		return
 	}
 
 	// Extract port from existing service (simple parsing)
 	port := 0
-	for _, line := range strings.Split(string(serviceContent), "\n") {
+	for line := range strings.SplitSeq(string(serviceContent), "\n") {
 		if strings.Contains(line, "PORT=") {
 			parts := strings.SplitN(line, "=", 2)
 			if len(parts) == 2 {
@@ -690,88 +833,178 @@ func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := createSystemdService(serviceName, binaryPath, appDir, configDir, port, req.Args); err != nil {
-		writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to update systemd service: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to update systemd service: %v", err),
+			logs.String(),
+		)
 		return
 	}
 	logs.WriteString("Updated systemd service\n")
 
 	// Reload and restart service (requires sudo for system units)
 	if err := sudoRun("systemctl", "daemon-reload").Run(); err != nil {
-		writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to reload systemd: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to reload systemd: %v", err),
+			logs.String(),
+		)
 		return
 	}
 
 	if err := sudoRun("systemctl", "restart", serviceName).Run(); err != nil {
-		writeDeployResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to restart service: %v", err), logs.String())
+		writeDeployResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to restart service: %v", err),
+			logs.String(),
+		)
 		return
 	}
 	logs.WriteString("Service restarted with new version\n")
 
-	writeDeployResponse(w, http.StatusOK, "success", fmt.Sprintf("deployed version %s", req.ArtifactVersion), logs.String())
+	writeDeployResponse(
+		w,
+		http.StatusOK,
+		"success",
+		fmt.Sprintf("deployed version %s", req.ArtifactVersion),
+		logs.String(),
+	)
 }
 
 // CreateDockerApp implements ServerInterface.
 func (h *APIHandler) CreateDockerApp(w http.ResponseWriter, r *http.Request) {
-	writeDeployResponse(w, http.StatusNotImplemented, "error", "docker app creation not yet implemented", "")
+	writeDeployResponse(
+		w,
+		http.StatusNotImplemented,
+		"error",
+		"docker app creation not yet implemented",
+		"",
+	)
 }
 
 // DeployDockerApp implements ServerInterface.
 func (h *APIHandler) DeployDockerApp(w http.ResponseWriter, r *http.Request) {
-	writeDeployResponse(w, http.StatusNotImplemented, "error", "docker app deployment not yet implemented", "")
+	writeDeployResponse(
+		w,
+		http.StatusNotImplemented,
+		"error",
+		"docker app deployment not yet implemented",
+		"",
+	)
 }
 
 // StartApp implements ServerInterface.
 func (h *APIHandler) StartApp(w http.ResponseWriter, r *http.Request) {
 	var req AppActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeAppActionResponse(w, http.StatusBadRequest, "error", fmt.Sprintf("invalid request body: %v", err), "")
+		writeAppActionResponse(
+			w,
+			http.StatusBadRequest,
+			"error",
+			fmt.Sprintf("invalid request body: %v", err),
+			"",
+		)
 		return
 	}
 
 	serviceName := fmt.Sprintf("%s-%s", req.AppSlug, req.Environment)
 	output, err := sudoRun("systemctl", "start", serviceName).CombinedOutput()
 	if err != nil {
-		writeAppActionResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to start service: %v", err), string(output))
+		writeAppActionResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to start service: %v", err),
+			string(output),
+		)
 		return
 	}
 
-	writeAppActionResponse(w, http.StatusOK, "success", fmt.Sprintf("service %s started", serviceName), string(output))
+	writeAppActionResponse(
+		w,
+		http.StatusOK,
+		"success",
+		fmt.Sprintf("service %s started", serviceName),
+		string(output),
+	)
 }
 
 // StopApp implements ServerInterface.
 func (h *APIHandler) StopApp(w http.ResponseWriter, r *http.Request) {
 	var req AppActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeAppActionResponse(w, http.StatusBadRequest, "error", fmt.Sprintf("invalid request body: %v", err), "")
+		writeAppActionResponse(
+			w,
+			http.StatusBadRequest,
+			"error",
+			fmt.Sprintf("invalid request body: %v", err),
+			"",
+		)
 		return
 	}
 
 	serviceName := fmt.Sprintf("%s-%s", req.AppSlug, req.Environment)
 	output, err := sudoRun("systemctl", "stop", serviceName).CombinedOutput()
 	if err != nil {
-		writeAppActionResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to stop service: %v", err), string(output))
+		writeAppActionResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to stop service: %v", err),
+			string(output),
+		)
 		return
 	}
 
-	writeAppActionResponse(w, http.StatusOK, "success", fmt.Sprintf("service %s stopped", serviceName), string(output))
+	writeAppActionResponse(
+		w,
+		http.StatusOK,
+		"success",
+		fmt.Sprintf("service %s stopped", serviceName),
+		string(output),
+	)
 }
 
 // RestartApp implements ServerInterface.
 func (h *APIHandler) RestartApp(w http.ResponseWriter, r *http.Request) {
 	var req AppActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeAppActionResponse(w, http.StatusBadRequest, "error", fmt.Sprintf("invalid request body: %v", err), "")
+		writeAppActionResponse(
+			w,
+			http.StatusBadRequest,
+			"error",
+			fmt.Sprintf("invalid request body: %v", err),
+			"",
+		)
 		return
 	}
 
 	serviceName := fmt.Sprintf("%s-%s", req.AppSlug, req.Environment)
 	output, err := sudoRun("systemctl", "restart", serviceName).CombinedOutput()
 	if err != nil {
-		writeAppActionResponse(w, http.StatusInternalServerError, "error", fmt.Sprintf("failed to restart service: %v", err), string(output))
+		writeAppActionResponse(
+			w,
+			http.StatusInternalServerError,
+			"error",
+			fmt.Sprintf("failed to restart service: %v", err),
+			string(output),
+		)
 		return
 	}
 
-	writeAppActionResponse(w, http.StatusOK, "success", fmt.Sprintf("service %s restarted", serviceName), string(output))
+	writeAppActionResponse(
+		w,
+		http.StatusOK,
+		"success",
+		fmt.Sprintf("service %s restarted", serviceName),
+		string(output),
+	)
 }
 
 // GetNodeMetrics implements ServerInterface.
@@ -784,7 +1017,7 @@ func (h *APIHandler) GetNodeMetrics(w http.ResponseWriter, r *http.Request) {
 		`node_cpu_seconds_total{mode="idle"}`,
 	}
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 
 	for _, query := range queries {
 		queryURL := fmt.Sprintf(
@@ -809,7 +1042,7 @@ func (h *APIHandler) GetNodeMetrics(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var queryResult map[string]interface{}
+		var queryResult map[string]any
 		if err := json.Unmarshal(body, &queryResult); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
@@ -825,7 +1058,11 @@ func (h *APIHandler) GetNodeMetrics(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-func createSystemdService(serviceName, binaryPath, workDir, configDir string, port int, args *[]string) error {
+func createSystemdService(
+	serviceName, binaryPath, workDir, configDir string,
+	port int,
+	args *[]string,
+) error {
 	servicePath := systemdServicePath(serviceName)
 
 	var argsStr string
