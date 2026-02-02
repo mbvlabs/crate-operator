@@ -46,6 +46,7 @@ components:
         - environment
         - artifact_source
         - artifact_version
+        - artifact_name
         - port
       properties:
         app_slug:
@@ -55,6 +56,8 @@ components:
         artifact_source:
           type: string
         artifact_version:
+          type: string
+        artifact_name:
           type: string
         domain:
           type: string
@@ -78,6 +81,7 @@ components:
         - environment
         - artifact_source
         - artifact_version
+        - artifact_name
       properties:
         app_slug:
           type: string
@@ -86,6 +90,8 @@ components:
         artifact_source:
           type: string
         artifact_version:
+          type: string
+        artifact_name:
           type: string
         args:
           type: array

@@ -37,6 +37,7 @@ type AppActionResponse struct {
 type CreateBinaryAppRequest struct {
 	AppSlug         string             `json:"app_slug"`
 	Args            *[]string          `json:"args,omitempty"`
+	ArtifactName    string             `json:"artifact_name"`
 	ArtifactSource  string             `json:"artifact_source"`
 	ArtifactVersion string             `json:"artifact_version"`
 	Domain          *string            `json:"domain,omitempty"`
@@ -64,6 +65,7 @@ type CreateDockerAppRequest struct {
 type DeployBinaryAppRequest struct {
 	AppSlug         string    `json:"app_slug"`
 	Args            *[]string `json:"args,omitempty"`
+	ArtifactName    string    `json:"artifact_name"`
 	ArtifactSource  string    `json:"artifact_source"`
 	ArtifactVersion string    `json:"artifact_version"`
 	Environment     string    `json:"environment"`

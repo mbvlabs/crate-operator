@@ -512,12 +512,14 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.TrimSpace(req.ArtifactSource) == "" || strings.TrimSpace(req.ArtifactVersion) == "" {
+	if strings.TrimSpace(req.ArtifactSource) == "" ||
+		strings.TrimSpace(req.ArtifactVersion) == "" ||
+		strings.TrimSpace(req.ArtifactName) == "" {
 		writeDeployResponse(
 			w,
 			http.StatusBadRequest,
 			"error",
-			"artifact_source and artifact_version are required",
+			"artifact_source, artifact_version and artifact_name are required",
 			"",
 		)
 		return
@@ -567,8 +569,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 	binaryURL, _, err := buildArtifactURLs(
 		req.ArtifactSource,
 		req.ArtifactVersion,
-		// TODO: NOT CORRECT - we need the binary name
-		"app",
+		req.ArtifactName,
 	)
 	if err != nil {
 		writeDeployResponse(
