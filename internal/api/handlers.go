@@ -32,7 +32,7 @@ func NewAPIHandler(version, apiKey string) *APIHandler {
 	}
 }
 
-const agentArtifactSource = ""
+const agentArtifactSource = "https://mithlond-agent.mbvlabs.com/version"
 
 // UpdateAgent implements ServerInterface.
 func (h *APIHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
