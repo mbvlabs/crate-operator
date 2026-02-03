@@ -16,28 +16,44 @@ import (
 )
 
 var CreateBinaryAppRequestSchema = z.Struct(z.Shape{
-	"teamSlug":     z.String().Required(z.Message("Team Slug must be provided")).Min(3).Max(50),
-	"deploymentId": z.String().Required(z.Message("DeploymentID must be provided")).Max(100),
-	"appId":        z.String().Required(z.Message("App ID must be provided")).Min(3).Max(10),
-	"appSlug":      z.String().Required(z.Message("App Slug must be provided")).Min(3).Max(50),
+	"teamSlug": z.String().
+		Required(z.Message("Team Slug must be provided")).
+		Min(3).
+		Max(50, z.Message("Team Slug must be between 3 and 50 characters")),
+	"deploymentId": z.String().
+		Required(z.Message("DeploymentID must be provided")).
+		Max(100, z.Message("DeploymentID must be between 1 and 100 characters")),
+	"appId": z.String().
+		Required(z.Message("App ID must be provided")).
+		Min(3).
+		Max(50, z.Message("App ID must be between 3 and 50 characters")),
+	"appSlug": z.String().
+		Required(z.Message("App Slug must be provided")).
+		Min(3).
+		Max(50, z.Message("App Slug must be between 3 and 50 characters")),
 	"artifactName": z.String().
 		Required(z.Message("Artifact name must be provided")).
 		Min(1).
-		Max(200),
+		Max(200, z.Message("Artifact name must be between 1 and 200 characters")),
 	"artifactSource": z.String().
 		Required(z.Message("Artifact source must be provided")).
 		Min(1).
-		Max(2000),
+		Max(2000, z.Message("Artifact source must be between 1 and 2000 characters")),
 	"artifactVersion": z.String().
 		Required(z.Message("Artifact version must be provided")).
 		Min(1).
-		Max(100),
+		Max(100, z.Message("Artifact version must be between 1 and 100 characters")),
 	"environmentName": z.String().
 		Required(z.Message("Environment name must be provided")).
 		Min(1).
-		Max(100),
-	"callbackUrl": z.String().Required(z.Message("CallbackURL must be provided")).URL().Max(2000),
-	"domain":      z.String().Optional().Max(253),
+		Max(100, z.Message("Environment name must be between 1 and 100 characters")),
+	"callbackUrl": z.String().
+		Required(z.Message("CallbackURL must be provided")).
+		URL().
+		Max(2000, z.Message("CallbackURL must be between 1 and 2000 characters")),
+	"domain": z.String().
+		Optional().
+		Max(253, z.Message("Domain must be between 1 and 253 characters")),
 	"port": z.Int().Required(z.Message("Port must be provided")).
 		GT(0).
 		LT(65536).
