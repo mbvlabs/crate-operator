@@ -13,12 +13,13 @@ import (
 
 // DeploymentEvent represents an event sent to the callback URL during deployment.
 type DeploymentEvent struct {
-	Timestamp string `json:"timestamp"`
-	Action    string `json:"action"`
-	Step      string `json:"step"`
-	Status    string `json:"status"`
-	Message   string `json:"message"`
-	Error     string `json:"error"`
+	GroupingID string `json:"grouping_id"`
+	Timestamp  string `json:"timestamp"`
+	Action     string `json:"action"`
+	Step       string `json:"step"`
+	Status     string `json:"status"`
+	Message    string `json:"message"`
+	Error      string `json:"error"`
 }
 
 // CallbackEmitter sends deployment events to a callback URL.
@@ -37,7 +38,7 @@ func NewCallbackEmitter(callbackURL, apiKey string) *CallbackEmitter {
 	return &CallbackEmitter{
 		callbackURL: callbackURL,
 		apiKey:      apiKey,
-		client:      &http.Client{Timeout: 10 * time.Second},
+		client:      &http.Client{Timeout: 3 * time.Minute},
 	}
 }
 
@@ -62,7 +63,7 @@ func (e *CallbackEmitter) EmitDeploymentEvent(ctx context.Context, event Deploym
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", e.apiKey)
+	req.Header.Set("AGENT-TOKEN", e.apiKey)
 
 	resp, err := e.client.Do(req)
 	if err != nil {
