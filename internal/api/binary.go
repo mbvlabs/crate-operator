@@ -57,7 +57,7 @@ var CreateBinaryAppRequestSchema = z.Struct(z.Shape{
 	"port": z.Int().Required(z.Message("Port must be provided")).
 		GT(0).
 		LT(65536).
-		OneOf([]int{80, 443, 9640}, z.Message("Ports: 80, 443, 9640 is reserved")),
+		Not().OneOf([]int{80, 443, 9640}, z.Message("Ports: 80, 443, 9640 is reserved")),
 })
 
 const (
