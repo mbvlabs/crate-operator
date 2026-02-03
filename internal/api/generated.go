@@ -35,18 +35,19 @@ type AppActionResponse struct {
 
 // CreateBinaryAppRequest defines model for CreateBinaryAppRequest.
 type CreateBinaryAppRequest struct {
+	AppId           string             `json:"app_id"`
 	AppSlug         string             `json:"app_slug"`
-	Args            *[]string          `json:"args,omitempty"`
 	ArtifactName    string             `json:"artifact_name"`
 	ArtifactSource  string             `json:"artifact_source"`
 	ArtifactVersion string             `json:"artifact_version"`
-	CallbackUrl     *string            `json:"callback_url,omitempty"`
-	DeploymentId    *string            `json:"deployment_id,omitempty"`
-	Domain          *string            `json:"domain,omitempty"`
+	CallbackUrl     string             `json:"callback_url"`
+	DeploymentId    string             `json:"deployment_id"`
+	Domain          string             `json:"domain"`
 	EnvVars         *map[string]string `json:"env_vars,omitempty"`
-	Environment     string             `json:"environment"`
+	EnvironmentName string             `json:"environment_name"`
 	HealthcheckUrl  *string            `json:"healthcheck_url,omitempty"`
 	Port            int                `json:"port"`
+	TeamSlug        string             `json:"team_slug"`
 }
 
 // CreateDockerAppRequest defines model for CreateDockerAppRequest.
@@ -108,7 +109,8 @@ type HealthResponseStatus string
 
 // UpdateAgentRequest defines model for UpdateAgentRequest.
 type UpdateAgentRequest struct {
-	ArtifactVersion string `json:"artifact_version"`
+	ArtifactVersion        string  `json:"artifact_version"`
+	OverrideArtifactSource *string `json:"override_artifact_source,omitempty"`
 }
 
 // UpdateAgentResponse defines model for UpdateAgentResponse.

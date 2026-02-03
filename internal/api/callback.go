@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -13,55 +13,52 @@ import (
 
 // DeploymentEvent represents an event sent to the callback URL during deployment.
 type DeploymentEvent struct {
-	DeploymentID string `json:"deployment_id,omitempty"`
-	Level        string `json:"level,omitempty"`
-	Step         string `json:"step,omitempty"`
-	Phase        string `json:"phase,omitempty"`
-	Message      string `json:"message,omitempty"`
-	Status       string `json:"status,omitempty"`
-	Error        string `json:"error,omitempty"`
+	Timestamp string `json:"timestamp"`
+	Action    string `json:"action"`
+	Step      string `json:"step"`
+	Status    string `json:"status"`
+	Message   string `json:"message"`
+	Error     string `json:"error"`
 }
 
 // CallbackEmitter sends deployment events to a callback URL.
 type CallbackEmitter struct {
-	callbackURL  string
-	deploymentID string
-	apiKey       string
-	client       *http.Client
+	callbackURL string
+	apiKey      string
+	client      *http.Client
 }
 
 // NewCallbackEmitter creates a new CallbackEmitter.
-// Returns nil if callbackURL is empty.
-func NewCallbackEmitter(callbackURL, deploymentID, apiKey string) *CallbackEmitter {
+func NewCallbackEmitter(callbackURL, apiKey string) *CallbackEmitter {
 	if callbackURL == "" {
 		return nil
 	}
+
 	return &CallbackEmitter{
-		callbackURL:  callbackURL,
-		deploymentID: deploymentID,
-		apiKey:       apiKey,
-		client:       &http.Client{Timeout: 10 * time.Second},
+		callbackURL: callbackURL,
+		apiKey:      apiKey,
+		client:      &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
-// Emit sends an event to the callback URL.
-func (e *CallbackEmitter) Emit(ctx context.Context, event DeploymentEvent) {
-	if e == nil {
-		return
-	}
-
-	event.DeploymentID = e.deploymentID
-
+// EmitDeploymentEvent sends an event to the callback URL.
+func (e *CallbackEmitter) EmitDeploymentEvent(ctx context.Context, event DeploymentEvent) error {
+	event.Timestamp = time.Now().Format(time.RFC3339)
 	payload, err := json.Marshal(event)
 	if err != nil {
 		slog.Error("failed to marshal callback event", "error", err)
-		return
+		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.callbackURL, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		e.callbackURL,
+		bytes.NewReader(payload),
+	)
 	if err != nil {
 		slog.Error("failed to create callback request", "error", err)
-		return
+		return err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -70,53 +67,14 @@ func (e *CallbackEmitter) Emit(ctx context.Context, event DeploymentEvent) {
 	resp, err := e.client.Do(req)
 	if err != nil {
 		slog.Error("failed to send callback event", "error", err, "url", e.callbackURL)
-		return
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		slog.Warn("callback returned error status", "status", resp.StatusCode, "url", e.callbackURL)
+		return errors.New("callback returned error status")
 	}
-}
 
-// EmitStart sends a step start event.
-func (e *CallbackEmitter) EmitStart(ctx context.Context, step, message string) {
-	e.Emit(ctx, DeploymentEvent{
-		Level:   "info",
-		Step:    step,
-		Phase:   "start",
-		Message: message,
-	})
-}
-
-// EmitDone sends a step done event.
-func (e *CallbackEmitter) EmitDone(ctx context.Context, step, message string) {
-	e.Emit(ctx, DeploymentEvent{
-		Level:   "info",
-		Step:    step,
-		Phase:   "done",
-		Message: message,
-	})
-}
-
-// EmitCompleted sends the final completed status event.
-func (e *CallbackEmitter) EmitCompleted(ctx context.Context, message string) {
-	e.Emit(ctx, DeploymentEvent{
-		Level:   "info",
-		Phase:   "done",
-		Message: message,
-		Status:  "completed",
-	})
-}
-
-// EmitFailed sends a failed status event with error details.
-func (e *CallbackEmitter) EmitFailed(ctx context.Context, step string, err error) {
-	e.Emit(ctx, DeploymentEvent{
-		Level:   "error",
-		Step:    step,
-		Phase:   "done",
-		Message: fmt.Sprintf("Deployment failed: %v", err),
-		Status:  "failed",
-		Error:   err.Error(),
-	})
+	return nil
 }

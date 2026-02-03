@@ -6,10 +6,6 @@ info:
     Server agent API for handling deployments, updates, and health checks.
     This agent is installed on servers/VPS instances and communicates with the Mithlond platform.
 
-servers:
-  - url: http://localhost:8080
-    description: Local development server
-
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -42,18 +38,27 @@ components:
     CreateBinaryAppRequest:
       type: object
       required:
+        - app_id
         - app_slug
-        - environment
+        - deployment_id
+        - team_slug
+        - environment_name
         - artifact_source
-        - artifact_version
         - artifact_name
+        - artifact_version
+        - callback_url
+        - domain
         - port
       properties:
-        deployment_id:
+        app_id:
           type: string
         app_slug:
           type: string
-        environment:
+        deployment_id:
+          type: string
+        team_slug:
+          type: string
+        environment_name:
           type: string
         artifact_source:
           type: string
@@ -72,10 +77,6 @@ components:
             type: string
         port:
           type: integer
-        args:
-          type: array
-          items:
-            type: string
         healthcheck_url:
           type: string
 
@@ -179,6 +180,8 @@ components:
         - artifact_version
       properties:
         artifact_version:
+          type: string
+        override_artifact_source:
           type: string
     UpdateAgentResponse:
       type: object
