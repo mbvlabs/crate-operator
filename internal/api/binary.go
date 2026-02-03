@@ -114,7 +114,19 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
 			GroupingID: groupingID,
 			Action:     CreateBinaryAppAction,
+			Scope:      "action",
+			Status:     "in_progress",
+			Message:    fmt.Sprintf("Starting deployment for %s/%s", req.AppSlug, req.EnvironmentName),
+		}); err != nil {
+			slog.Error("failed to emit deployment event", "error", err)
+			return
+		}
+
+		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+			GroupingID: groupingID,
+			Action:     CreateBinaryAppAction,
 			Step:       "create_app_directory",
+			Scope:      "step",
 			Status:     "in_progress",
 			Message:    fmt.Sprintf("Creating binary app %s/%s", req.AppSlug, req.EnvironmentName),
 		}); err != nil {
@@ -131,6 +143,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		)
 		if err := os.MkdirAll(appDir, 0o755); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+				Scope:      "step",
 				GroupingID: groupingID,
 				Action:     CreateBinaryAppAction,
 				Step:       "create_app_directory",
@@ -144,6 +157,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+			Scope:      "step",
 			GroupingID: groupingID,
 			Action:     CreateBinaryAppAction,
 			Step:       "create_app_directory",
@@ -155,6 +169,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+			Scope:      "step",
 			GroupingID: groupingID,
 			Action:     CreateBinaryAppAction,
 			Step:       "create_config_directory",
@@ -173,6 +188,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		)
 		if err := sudoMkdirAll(configDir); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+				Scope:      "step",
 				GroupingID: groupingID,
 				Action:     CreateBinaryAppAction,
 				Step:       "create_config_directory",
@@ -186,6 +202,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+			Scope:      "step",
 			GroupingID: groupingID,
 			Action:     CreateBinaryAppAction,
 			Step:       "create_config_directory",
@@ -197,6 +214,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+			Scope:      "step",
 			GroupingID: groupingID,
 			Action:     CreateBinaryAppAction,
 			Step:       "download",
@@ -216,6 +234,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		)
 		if err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+				Scope:      "step",
 				GroupingID: groupingID,
 				Action:     CreateBinaryAppAction,
 				Step:       "download",
@@ -229,6 +248,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+			Scope:      "step",
 			GroupingID: groupingID,
 			Action:     CreateBinaryAppAction,
 			Step:       "download",
@@ -241,6 +261,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 
 		if err := downloadToFile(ctx, binaryURL, binaryPath); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+				Scope:      "step",
 				GroupingID: groupingID,
 				Action:     CreateBinaryAppAction,
 				Step:       "download",
@@ -254,6 +275,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+			Scope:      "step",
 			Action:     CreateBinaryAppAction,
 			GroupingID: groupingID,
 			Step:       "download",
@@ -267,6 +289,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		// Make binary executable
 		if err := os.Chmod(binaryPath, 0o755); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+				Scope:      "step",
 				GroupingID: groupingID,
 				Action:     CreateBinaryAppAction,
 				Step:       "switch",
@@ -280,6 +303,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+			Scope:      "step",
 			GroupingID: groupingID,
 			Action:     CreateBinaryAppAction,
 			Step:       "switch",
@@ -291,6 +315,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+			Scope:      "step",
 			GroupingID: groupingID,
 			Action:     CreateBinaryAppAction,
 			Step:       "environmental_variables",
@@ -311,6 +336,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 
 			if err := sudoWriteFile(envPath, []byte(envContent.String()), 0o640); err != nil {
 				if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+					Scope:      "step",
 					GroupingID: groupingID,
 					Action:     CreateBinaryAppAction,
 					Step:       "environmental_variables",
@@ -326,6 +352,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+			Scope:      "step",
 			GroupingID: groupingID,
 			Action:     CreateBinaryAppAction,
 			Step:       "environmental_variables",
@@ -337,6 +364,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+			Scope:      "step",
 			GroupingID: groupingID,
 			Action:     CreateBinaryAppAction,
 			Step:       "systemd_service",
@@ -351,6 +379,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		serviceName := fmt.Sprintf("%s-%s", req.AppSlug, req.EnvironmentName)
 		if err := createSystemdService(serviceName, binaryPath, appDir, configDir, req.Port, nil); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+				Scope:      "step",
 				GroupingID: groupingID,
 				Action:     CreateBinaryAppAction,
 				Step:       "systemd_service",
@@ -364,6 +393,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+			Scope:      "step",
 			Action:     CreateBinaryAppAction,
 			GroupingID: groupingID,
 			Step:       "systemd_service",
@@ -375,6 +405,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+			Scope:      "step",
 			GroupingID: groupingID,
 			Action:     CreateBinaryAppAction,
 			Step:       "start_service",
@@ -388,6 +419,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		// Enable and start service (requires sudo for system units)
 		if err := sudoRun("systemctl", "daemon-reload").Run(); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+				Scope:      "step",
 				Action:     CreateBinaryAppAction,
 				GroupingID: groupingID,
 				Step:       "start_service",
@@ -402,6 +434,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 
 		if err := sudoRun("systemctl", "enable", serviceName).Run(); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+				Scope:      "step",
 				Action:     CreateBinaryAppAction,
 				GroupingID: groupingID,
 				Step:       "start_service",
@@ -416,6 +449,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 
 		if err := sudoRun("systemctl", "start", serviceName).Run(); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+				Scope:      "step",
 				GroupingID: groupingID,
 				Action:     CreateBinaryAppAction,
 				Step:       "start_service",
@@ -430,6 +464,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
 			GroupingID: groupingID,
+			Scope:      "step",
 			Action:     CreateBinaryAppAction,
 			Step:       "start_service",
 			Status:     "completed",
@@ -443,6 +478,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 			Action:     CreateBinaryAppAction,
 			GroupingID: groupingID,
 			Step:       "caddy_configuration",
+			Scope:      "step",
 			Status:     "in_progress",
 			Message:    "Configuring Caddy route",
 		}); err != nil {
@@ -455,6 +491,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
 				Action:     CreateBinaryAppAction,
 				GroupingID: groupingID,
+				Scope:      "step",
 				Step:       "caddy_configuration",
 				Status:     "failed",
 				Message:    "Failed to configure Caddy route",
@@ -468,9 +505,21 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
 			GroupingID: groupingID,
 			Action:     CreateBinaryAppAction,
+			Scope:      "step",
 			Step:       "caddy_configuration",
 			Status:     "completed",
 			Message:    "Caddy route configured successfully",
+		}); err != nil {
+			slog.Error("failed to emit deployment event", "error", err)
+			return
+		}
+
+		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+			GroupingID: groupingID,
+			Action:     CreateBinaryAppAction,
+			Scope:      "action",
+			Status:     "completed",
+			Message:    "Deployment completed successfully",
 		}); err != nil {
 			slog.Error("failed to emit deployment event", "error", err)
 			return

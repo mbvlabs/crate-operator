@@ -16,6 +16,7 @@ type DeploymentEvent struct {
 	GroupingID string `json:"grouping_id"`
 	Timestamp  string `json:"timestamp"`
 	Action     string `json:"action"`
+	Scope      string `json:"scope"`
 	Step       string `json:"step"`
 	Status     string `json:"status"`
 	Message    string `json:"message"`
