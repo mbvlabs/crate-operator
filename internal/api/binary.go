@@ -126,7 +126,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		// e.g., /opt/mithlond/apps/team_slug-team_id/environment
 		appDir := path.Join(
 			appsBaseDir(),
-			strings.ToLower(req.TeamSlug)+"-"+strings.ToLower(req.AppSlug),
+			strings.ToLower(req.TeamSlug)+"-"+strings.ToLower(req.AppId),
 			strings.ToLower(req.EnvironmentName),
 		)
 		if err := os.MkdirAll(appDir, 0o755); err != nil {
@@ -168,7 +168,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		// e.g., /etc/mithlond/apps/team_slug-team_id/environment
 		configDir := path.Join(
 			appsConfigDir(),
-			strings.ToLower(req.TeamSlug)+"-"+strings.ToLower(req.AppSlug),
+			strings.ToLower(req.TeamSlug)+"-"+strings.ToLower(req.AppId),
 			strings.ToLower(req.EnvironmentName),
 		)
 		if err := sudoMkdirAll(configDir); err != nil {
@@ -239,7 +239,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := downloadToFile(r.Context(), binaryURL, binaryPath); err != nil {
+		if err := downloadToFile(ctx, binaryURL, binaryPath); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
 				GroupingID: groupingID,
 				Action:     CreateBinaryAppAction,
