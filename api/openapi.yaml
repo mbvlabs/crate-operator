@@ -2,6 +2,9 @@ openapi: 3.0.0
 info:
   title: Mithlond Agent API
   version: 0.1.0
+  license:
+    name: O'Sassy
+    url: https://osaasy.dev/
   description: |
     Server agent API for handling deployments, updates, and health checks.
     This agent is installed on servers/VPS instances and communicates with the Mithlond platform.
@@ -42,16 +45,27 @@ components:
     CreateBinaryAppRequest:
       type: object
       required:
+        - app_id
         - app_slug
-        - environment
+        - deployment_id
+        - team_slug
+        - environment_name
         - artifact_source
-        - artifact_version
         - artifact_name
+        - artifact_version
+        - callback_url
+        - domain
         - port
       properties:
+        app_id:
+          type: string
         app_slug:
           type: string
-        environment:
+        deployment_id:
+          type: string
+        team_slug:
+          type: string
+        environment_name:
           type: string
         artifact_source:
           type: string
@@ -59,6 +73,9 @@ components:
           type: string
         artifact_name:
           type: string
+        callback_url:
+          type: string
+          format: uri
         domain:
           type: string
         env_vars:
@@ -67,10 +84,6 @@ components:
             type: string
         port:
           type: integer
-        args:
-          type: array
-          items:
-            type: string
         healthcheck_url:
           type: string
 
@@ -83,6 +96,8 @@ components:
         - artifact_version
         - artifact_name
       properties:
+        deployment_id:
+          type: string
         app_slug:
           type: string
         environment:
@@ -93,6 +108,9 @@ components:
           type: string
         artifact_name:
           type: string
+        callback_url:
+          type: string
+          format: uri
         args:
           type: array
           items:
@@ -107,6 +125,8 @@ components:
         - artifact_version
         - port
       properties:
+        deployment_id:
+          type: string
         app_slug:
           type: string
         environment:
@@ -115,6 +135,9 @@ components:
           type: string
         artifact_version:
           type: string
+        callback_url:
+          type: string
+          format: uri
         domain:
           type: string
         env_vars:
@@ -144,6 +167,8 @@ components:
         - artifact_source
         - artifact_version
       properties:
+        deployment_id:
+          type: string
         app_slug:
           type: string
         environment:
@@ -152,16 +177,18 @@ components:
           type: string
         artifact_version:
           type: string
+        callback_url:
+          type: string
+          format: uri
 
     UpdateAgentRequest:
       type: object
       required:
-        - artifact_source
         - artifact_version
       properties:
-        artifact_source:
-          type: string
         artifact_version:
+          type: string
+        override_artifact_source:
           type: string
     UpdateAgentResponse:
       type: object
@@ -216,6 +243,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateAgentResponse"
 
   /agent/update:
     post:
@@ -232,7 +265,7 @@ paths:
             schema:
               $ref: "#/components/schemas/UpdateAgentRequest"
       responses:
-        "200":
+        "202":
           description: OK
           content:
             application/json:
@@ -266,6 +299,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GenericObject"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateAgentResponse"
         "503":
           description: Prometheus not available
           content:

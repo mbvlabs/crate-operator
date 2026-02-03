@@ -32,7 +32,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	handler := api.NewAPIHandler(buildVersion)
+	handler := api.NewAPIHandler(buildVersion, cfg.APIKey)
 	server.SetOpenAPISpec(openapiSpec)
 	srv := server.New(cfg, handler)
 
