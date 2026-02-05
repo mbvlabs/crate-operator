@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -862,6 +863,126 @@ func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 		for key := range currentEnv {
 			if _, ok := desiredEnv[key]; !ok {
 				removed++
+			}
+		}
+
+		if added+changed+removed > 0 {
+			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+				Scope:      "step",
+				GroupingID: groupingID,
+				Action:     DeployBinaryAppAction,
+				Step:       "environmental_variables",
+				Status:     "in_progress",
+				Message:    fmt.Sprintf("Updating environment variables (added: %d, changed: %d, removed: %d)", added, changed, removed),
+			}); err != nil {
+				slog.Error("failed to emit deployment event", "error", err)
+				return
+			}
+
+			if len(desiredEnv) == 0 {
+				if _, err := os.Stat(envPath); err == nil {
+					if err := sudoRun("rm", "-f", envPath).Run(); err != nil {
+						if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+							Scope:      "step",
+							GroupingID: groupingID,
+							Action:     DeployBinaryAppAction,
+							Step:       "environmental_variables",
+							Status:     "failed",
+							Message:    "Failed to remove env file",
+							Error:      fmt.Sprintf("failed to remove env file: %v", err),
+						}); err != nil {
+							slog.Error("failed to emit deployment event", "error", err)
+						}
+						return
+					}
+				}
+			} else {
+				keys := make([]string, 0, len(desiredEnv))
+				for key := range desiredEnv {
+					keys = append(keys, key)
+				}
+				sort.Strings(keys)
+
+				var envContent strings.Builder
+				for _, key := range keys {
+					fmt.Fprintf(&envContent, "%s=%s\n", key, desiredEnv[key])
+				}
+
+				tmpOutput, err := sudoRun("mktemp", path.Join(configDir, "env.tmp.XXXXXX")).Output()
+				if err != nil {
+					if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+						Scope:      "step",
+						GroupingID: groupingID,
+						Action:     DeployBinaryAppAction,
+						Step:       "environmental_variables",
+						Status:     "failed",
+						Message:    "Failed to create temp env file",
+						Error:      fmt.Sprintf("failed to create temp env file: %v", err),
+					}); err != nil {
+						slog.Error("failed to emit deployment event", "error", err)
+					}
+					return
+				}
+
+				tmpPath := strings.TrimSpace(string(tmpOutput))
+				if tmpPath == "" {
+					if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+						Scope:      "step",
+						GroupingID: groupingID,
+						Action:     DeployBinaryAppAction,
+						Step:       "environmental_variables",
+						Status:     "failed",
+						Message:    "Failed to create temp env file",
+						Error:      "mktemp returned empty path",
+					}); err != nil {
+						slog.Error("failed to emit deployment event", "error", err)
+					}
+					return
+				}
+
+				if err := sudoWriteFile(tmpPath, []byte(envContent.String()), 0o640); err != nil {
+					_ = sudoRun("rm", "-f", tmpPath).Run()
+					if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+						Scope:      "step",
+						GroupingID: groupingID,
+						Action:     DeployBinaryAppAction,
+						Step:       "environmental_variables",
+						Status:     "failed",
+						Message:    "Failed to write env file",
+						Error:      fmt.Sprintf("failed to write temp env file: %v", err),
+					}); err != nil {
+						slog.Error("failed to emit deployment event", "error", err)
+					}
+					return
+				}
+
+				if err := sudoRun("mv", "-f", tmpPath, envPath).Run(); err != nil {
+					_ = sudoRun("rm", "-f", tmpPath).Run()
+					if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+						Scope:      "step",
+						GroupingID: groupingID,
+						Action:     DeployBinaryAppAction,
+						Step:       "environmental_variables",
+						Status:     "failed",
+						Message:    "Failed to install env file",
+						Error:      fmt.Sprintf("failed to move env file into place: %v", err),
+					}); err != nil {
+						slog.Error("failed to emit deployment event", "error", err)
+					}
+					return
+				}
+			}
+
+			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+				Scope:      "step",
+				GroupingID: groupingID,
+				Action:     DeployBinaryAppAction,
+				Step:       "environmental_variables",
+				Status:     "completed",
+				Message:    "Environment variables updated",
+			}); err != nil {
+				slog.Error("failed to emit deployment event", "error", err)
+				return
 			}
 		}
 
