@@ -44,7 +44,7 @@ type CreateBinaryAppRequest struct {
 	DeploymentId    string             `json:"deployment_id"`
 	Domain          string             `json:"domain"`
 	EnvVars         *map[string]string `json:"env_vars,omitempty"`
-	EnvironmentName string             `json:"environment_name"`
+	EnvironmentId   string             `json:"environment_id"`
 	Port            int                `json:"port"`
 	TeamId          string             `json:"team_id"`
 }

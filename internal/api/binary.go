@@ -42,10 +42,9 @@ var CreateBinaryAppRequestSchema = z.Struct(z.Shape{
 		Required(z.Message("Artifact version must be provided")).
 		Min(1, z.Message("Artifact version must be at least 1 character")).
 		Max(100, z.Message("Artifact version must be between 1 and 100 characters")),
-	"environmentName": z.String().
-		Required(z.Message("Environment name must be provided")).
-		Min(1, z.Message("Environment name must be at least 1 character")).
-		Max(100, z.Message("Environment name must be between 1 and 100 characters")),
+	"environmentId": z.String().
+		Required(z.Message("Environment id must be provided")).
+		UUID(z.Message("Environment ID must be a valid UUID v4")),
 	"callbackUrl": z.String().
 		Required(z.Message("Callback URL must be provided")).
 		URL().
@@ -120,7 +119,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 			Action:     CreateBinaryAppAction,
 			Scope:      "action",
 			Status:     "in_progress",
-			Message:    fmt.Sprintf("Starting deployment for /%s", req.EnvironmentName),
+			Message:    fmt.Sprintf("Starting deployment for /%s", req.EnvironmentId),
 		}); err != nil {
 			slog.Error("failed to emit deployment event", "error", err)
 			return
@@ -132,7 +131,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 			Step:       "create_app_directory",
 			Scope:      "step",
 			Status:     "in_progress",
-			Message:    fmt.Sprintf("Creating binary app %s", req.EnvironmentName),
+			Message:    fmt.Sprintf("Creating binary app %s", req.EnvironmentId),
 		}); err != nil {
 			slog.Error("failed to emit deployment event", "error", err)
 			return
@@ -146,7 +145,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 			"apps",
 			strings.ToLower(req.AppId),
 			"envs",
-			strings.ToLower(req.EnvironmentName),
+			strings.ToLower(req.EnvironmentId),
 		)
 		if err := os.MkdirAll(appDir, 0o755); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
@@ -194,7 +193,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 			"apps",
 			strings.ToLower(req.AppId),
 			"envs",
-			strings.ToLower(req.EnvironmentName),
+			strings.ToLower(req.EnvironmentId),
 		)
 		if err := sudoMkdirAll(configDir); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
@@ -236,7 +235,10 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Download binary
-		binaryPath := path.Join(appDir, req.ArtifactVersion)
+		binaryPath := path.Join(
+			appDir,
+			req.ArtifactName,
+		)
 		binaryURL := req.AssetUrl
 		// binaryURL, _, err := buildArtifactURLs(
 		// 	req.ArtifactSource,
@@ -388,7 +390,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 
 		// Create systemd service (system unit, requires sudo)
 		serviceName := strings.ToLower(
-			fmt.Sprintf("%s__%s__%s", req.TeamId, req.AppId, req.EnvironmentName),
+			fmt.Sprintf("%s__%s__%s", req.TeamId, req.AppId, req.EnvironmentId),
 		)
 		if err := createSystemdService(serviceName, binaryPath, appDir, configDir, req.Port, nil); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
@@ -469,6 +471,21 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 				Status:     "failed",
 				Message:    "Failed to start service",
 				Error:      fmt.Sprintf("failed to start service: %v", err),
+			}); err != nil {
+				slog.Error("failed to emit deployment event", "error", err)
+			}
+			return
+		}
+
+		if err := sudoRun("systemctl", "is-active", "--quiet", serviceName).Run(); err != nil {
+			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+				Scope:      "step",
+				GroupingID: groupingID,
+				Action:     CreateBinaryAppAction,
+				Step:       "start_service",
+				Status:     "failed",
+				Message:    "Service failed to start",
+				Error:      fmt.Sprintf("service is not running: %v", err),
 			}); err != nil {
 				slog.Error("failed to emit deployment event", "error", err)
 			}
@@ -594,7 +611,7 @@ func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 			Action:     DeployBinaryAppAction,
 			Scope:      "action",
 			Status:     "in_progress",
-			Message:    fmt.Sprintf("Starting deployment for /%s", req.EnvironmentName),
+			Message:    fmt.Sprintf("Starting deployment for /%s", req.EnvironmentId),
 		}); err != nil {
 			slog.Error("failed to emit deployment event", "error", err)
 			return
@@ -618,7 +635,7 @@ func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 			"apps",
 			strings.ToLower(req.AppId),
 			"envs",
-			strings.ToLower(req.EnvironmentName),
+			strings.ToLower(req.EnvironmentId),
 		)
 		if _, err := os.Stat(appDir); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
@@ -659,7 +676,7 @@ func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		binaryPath := path.Join(appDir, req.ArtifactVersion)
+		binaryPath := path.Join(appDir, req.ArtifactName)
 		binaryURL, _, err := buildArtifactURLs(
 			req.ArtifactSource,
 			req.ArtifactVersion,
@@ -747,7 +764,7 @@ func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		serviceName := strings.ToLower(
-			fmt.Sprintf("%s__%s__%s", req.TeamId, req.AppId, req.EnvironmentName),
+			fmt.Sprintf("%s__%s__%s", req.TeamId, req.AppId, req.EnvironmentId),
 		)
 		configDir := path.Join(
 			appsConfigDir(),
@@ -755,7 +772,7 @@ func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 			"apps",
 			strings.ToLower(req.AppId),
 			"envs",
-			strings.ToLower(req.EnvironmentName),
+			strings.ToLower(req.EnvironmentId),
 		)
 
 		desiredEnv := map[string]string{}
@@ -868,6 +885,21 @@ func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 				Status:     "failed",
 				Message:    "Failed to restart service",
 				Error:      fmt.Sprintf("failed to restart service: %v", err),
+			}); err != nil {
+				slog.Error("failed to emit deployment event", "error", err)
+			}
+			return
+		}
+
+		if err := sudoRun("systemctl", "is-active", "--quiet", serviceName).Run(); err != nil {
+			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+				Scope:      "step",
+				GroupingID: groupingID,
+				Action:     DeployBinaryAppAction,
+				Step:       "restart_service",
+				Status:     "failed",
+				Message:    "Service failed to restart",
+				Error:      fmt.Sprintf("service is not running: %v", err),
 			}); err != nil {
 				slog.Error("failed to emit deployment event", "error", err)
 			}
