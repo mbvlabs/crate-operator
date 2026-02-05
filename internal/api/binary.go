@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"path"
@@ -22,6 +23,10 @@ var CreateBinaryAppRequestSchema = z.Struct(z.Shape{
 	"deploymentId": z.String().
 		Required(z.Message("DeploymentID must be provided")).
 		UUID(z.Message("Deployment ID must be a valid UUID v4")),
+	"assetUrl": z.String().
+		Required(z.Message("Asse turl must be provided")).
+		URL().
+		Max(2000, z.Message("Asset URL must be between 1 and 2000 characters")),
 	"appId": z.String().
 		Required(z.Message("App ID must be provided")).
 		UUID(z.Message("App ID must be a valid UUID v4")),
@@ -232,25 +237,26 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 
 		// Download binary
 		binaryPath := path.Join(appDir, req.ArtifactVersion)
-		binaryURL, _, err := buildArtifactURLs(
-			req.ArtifactSource,
-			req.ArtifactVersion,
-			req.ArtifactName,
-		)
-		if err != nil {
-			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
-				Scope:      "step",
-				GroupingID: groupingID,
-				Action:     CreateBinaryAppAction,
-				Step:       "download",
-				Status:     "failed",
-				Message:    "Failed to build artifact URLs",
-				Error:      fmt.Sprintf("failed to build artifact URLs: %v", err),
-			}); err != nil {
-				slog.Error("failed to emit deployment event", "error", err)
-			}
-			return
-		}
+		binaryURL := req.AssetUrl
+		// binaryURL, _, err := buildArtifactURLs(
+		// 	req.ArtifactSource,
+		// 	req.ArtifactVersion,
+		// 	req.ArtifactName,
+		// )
+		// if err != nil {
+		// 	if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+		// 		Scope:      "step",
+		// 		GroupingID: groupingID,
+		// 		Action:     CreateBinaryAppAction,
+		// 		Step:       "download",
+		// 		Status:     "failed",
+		// 		Message:    "Failed to build artifact URLs",
+		// 		Error:      fmt.Sprintf("failed to build artifact URLs: %v", err),
+		// 	}); err != nil {
+		// 		slog.Error("failed to emit deployment event", "error", err)
+		// 	}
+		// 	return
+		// }
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
 			Scope:      "step",
@@ -743,7 +749,6 @@ func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 		serviceName := strings.ToLower(
 			fmt.Sprintf("%s__%s__%s", req.TeamId, req.AppId, req.EnvironmentName),
 		)
-		servicePath := systemdServicePath(serviceName)
 		configDir := path.Join(
 			appsConfigDir(),
 			strings.ToLower(req.TeamId),
@@ -753,50 +758,54 @@ func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 			strings.ToLower(req.EnvironmentName),
 		)
 
-		serviceContent, err := os.ReadFile(servicePath)
-		if err != nil {
-			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
-				Scope:      "step",
-				GroupingID: groupingID,
-				Action:     DeployBinaryAppAction,
-				Step:       "switch",
-				Status:     "failed",
-				Message:    "Failed to read service file",
-				Error:      fmt.Sprintf("failed to read service file: %v", err),
-			}); err != nil {
-				slog.Error("failed to emit deployment event", "error", err)
-			}
+		desiredEnv := map[string]string{}
+		if req.EnvVars != nil {
+			maps.Copy(desiredEnv, *req.EnvVars)
+		}
+
+		currentEnv := map[string]string{}
+		envPath := path.Join(configDir, "env")
+		envContent, err := os.ReadFile(envPath)
+		if err != nil && !os.IsNotExist(err) {
+			slog.Error("failed to read env file", "error", err, "path", envPath)
 			return
 		}
 
-		port := 0
-		for line := range strings.SplitSeq(string(serviceContent), "\n") {
-			if strings.Contains(line, "PORT=") {
-				parts := strings.SplitN(line, "=", 2)
-				if len(parts) == 2 {
-					fmt.Sscanf(strings.TrimSpace(parts[1]), "%d", &port)
+		if err == nil {
+			for line := range strings.SplitSeq(string(envContent), "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" || strings.HasPrefix(line, "#") {
+					continue
 				}
+				parts := strings.SplitN(line, "=", 2)
+				if len(parts) != 2 {
+					continue
+				}
+				currentEnv[parts[0]] = parts[1]
 			}
-		}
-		if port == 0 {
-			port = req.Port
-		}
-		if port == 0 {
-			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
-				Scope:      "step",
-				GroupingID: groupingID,
-				Action:     DeployBinaryAppAction,
-				Step:       "switch",
-				Status:     "failed",
-				Message:    "Unable to determine port",
-				Error:      "port missing from service file and request",
-			}); err != nil {
-				slog.Error("failed to emit deployment event", "error", err)
-			}
-			return
 		}
 
-		if err := createSystemdService(serviceName, binaryPath, appDir, configDir, port, req.Args); err != nil {
+		added := 0
+		changed := 0
+		removed := 0
+
+		for key, desiredValue := range desiredEnv {
+			currentValue, ok := currentEnv[key]
+			if !ok {
+				added++
+				continue
+			}
+			if currentValue != desiredValue {
+				changed++
+			}
+		}
+		for key := range currentEnv {
+			if _, ok := desiredEnv[key]; !ok {
+				removed++
+			}
+		}
+
+		if err := createSystemdService(serviceName, binaryPath, appDir, configDir, req.Port, req.Args); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
 				Scope:      "step",
 				GroupingID: groupingID,

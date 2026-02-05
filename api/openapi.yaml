@@ -45,6 +45,7 @@ components:
     CreateBinaryAppRequest:
       type: object
       required:
+        - asset_url
         - app_id
         - deployment_id
         - team_id
@@ -56,6 +57,8 @@ components:
         - domain
         - port
       properties:
+        asset_url:
+          type: string
         app_id:
           type: string
         deployment_id:
