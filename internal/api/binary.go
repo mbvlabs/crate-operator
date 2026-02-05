@@ -679,25 +679,26 @@ func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		binaryPath := path.Join(appDir, req.ArtifactName)
-		binaryURL, _, err := buildArtifactURLs(
-			req.ArtifactSource,
-			req.ArtifactVersion,
-			req.ArtifactName,
-		)
-		if err != nil {
-			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
-				Scope:      "step",
-				GroupingID: groupingID,
-				Action:     DeployBinaryAppAction,
-				Step:       "download",
-				Status:     "failed",
-				Message:    "Failed to build artifact URLs",
-				Error:      fmt.Sprintf("failed to build artifact URLs: %v", err),
-			}); err != nil {
-				slog.Error("failed to emit deployment event", "error", err)
-			}
-			return
-		}
+		binaryURL := req.AssetUrl
+		// binaryURL, _, err := buildArtifactURLs(
+		// 	req.ArtifactSource,
+		// 	req.ArtifactVersion,
+		// 	req.ArtifactName,
+		// )
+		// if err != nil {
+		// 	if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
+		// 		Scope:      "step",
+		// 		GroupingID: groupingID,
+		// 		Action:     DeployBinaryAppAction,
+		// 		Step:       "download",
+		// 		Status:     "failed",
+		// 		Message:    "Failed to build artifact URLs",
+		// 		Error:      fmt.Sprintf("failed to build artifact URLs: %v", err),
+		// 	}); err != nil {
+		// 		slog.Error("failed to emit deployment event", "error", err)
+		// 	}
+		// 	return
+		// }
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
 			Scope:      "step",
