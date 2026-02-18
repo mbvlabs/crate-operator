@@ -1,4 +1,4 @@
-module github.com/mbvlabs/mithlond-agent
+module github.com/mbvlabs/crate-operator
 
 go 1.25.3
 

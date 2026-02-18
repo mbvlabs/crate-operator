@@ -15,7 +15,7 @@ run:
 
 # Build the agent
 build:
-    go build -o bin/mithlond-agent .
+    go build -o bin/crate-operator .
 
 # Run tests
 test:
