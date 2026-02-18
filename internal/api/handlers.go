@@ -20,14 +20,16 @@ import (
 )
 
 type APIHandler struct {
-	version string
-	apiKey  string
+	version        string
+	apiKey         string
+	agentDeployMgr *AgentDeploymentManager
 }
 
 func NewAPIHandler(version, apiKey string) *APIHandler {
 	return &APIHandler{
-		version: version,
-		apiKey:  apiKey,
+		version:        version,
+		apiKey:         apiKey,
+		agentDeployMgr: NewAgentDeploymentManager(apiKey),
 	}
 }
 
