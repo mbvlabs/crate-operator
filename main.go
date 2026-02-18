@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mbvlabs/mithlond-agent/internal/api"
-	"github.com/mbvlabs/mithlond-agent/internal/config"
-	"github.com/mbvlabs/mithlond-agent/internal/server"
+	"github.com/mbvlabs/crate-operator/internal/api"
+	"github.com/mbvlabs/crate-operator/internal/config"
+	"github.com/mbvlabs/crate-operator/internal/server"
 )
 
 //go:embed api/openapi.yaml
