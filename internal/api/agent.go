@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const agentArtifactSource = "https://mithlond-agent.mbvlabs.com/version"
+const agentArtifactSource = "https://crate-operator.deploycrate.com/version"
 
 // UpdateAgent implements ServerInterface.
 func (h *APIHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
@@ -43,7 +43,7 @@ func (h *APIHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 
 		binaryName := agentBinaryName()
-		tempFile, err := os.CreateTemp(agentInstallDir(), "mithlond-agent.*.tmp")
+		tempFile, err := os.CreateTemp(agentInstallDir(), "crate-operator.*.tmp")
 		if err != nil {
 			slog.Error("failed to create temp file", "error", err)
 			return
@@ -124,9 +124,9 @@ func (h *APIHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func agentBinaryName() string {
-	return "mithlond-agent-linux-amd64"
+	return "crate-operator-linux-amd64"
 }
 
 func agentInstallDir() string {
-	return "/opt/mithlond-agent"
+	return "/opt/crate-operator"
 }

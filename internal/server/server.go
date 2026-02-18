@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mbvlabs/mithlond-agent/internal/api"
-	"github.com/mbvlabs/mithlond-agent/internal/config"
+	"github.com/mbvlabs/crate-operator/internal/api"
+	"github.com/mbvlabs/crate-operator/internal/config"
 )
 
 type Server struct {
