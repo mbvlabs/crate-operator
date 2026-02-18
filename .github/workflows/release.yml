@@ -7,60 +7,28 @@ on:
 permissions:
   contents: read
 
-env:
-  R2_BUCKET: mithlond-agent
-
 jobs:
-  build-and-upload:
+  release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
-      - name: Get version from release tag
-        id: version
-        run: |
-          VERSION="${GITHUB_REF_NAME}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
-
-      - name: Build binary
-        run: |
-          go build \
-            -ldflags="-s -w -X main.buildVersion=${{ steps.version.outputs.version }}" \
-            -trimpath \
-            -o mithlond-agent-linux-amd64 \
-            .
-
-      - name: Generate checksum
-        run: |
-          sha256sum mithlond-agent-linux-amd64 | awk '{print $1}' > mithlond-agent-linux-amd64.sha256
-
-      - name: Create latest pointer
-        run: echo -n "${{ steps.version.outputs.version }}" > latest.txt
-
-      - name: Upload to Cloudflare R2
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-        run: |
-          aws s3 cp \
-            mithlond-agent-linux-amd64 \
-            s3://${{ env.R2_BUCKET }}/version/${{ steps.version.outputs.version }}/mithlond-agent-linux-amd64 \
-            --endpoint-url ${R2_ENDPOINT}
-
-          aws s3 cp \
-            mithlond-agent-linux-amd64.sha256 \
-            s3://${{ env.R2_BUCKET }}/version/${{ steps.version.outputs.version }}/mithlond-agent-linux-amd64.sha256 \
-            --endpoint-url ${R2_ENDPOINT}
-
-          aws s3 cp \
-            latest.txt \
-            s3://${{ env.R2_BUCKET }}/version/latest \
-            --endpoint-url ${R2_ENDPOINT}
