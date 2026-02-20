@@ -35,6 +35,9 @@ func (s *Server) Start() error {
 	// Register additional routes (docs)
 	mux.HandleFunc("GET /docs", s.handleDocs)
 	mux.HandleFunc("GET /openapi.yaml", s.handleOpenAPISpec)
+	if extra, ok := s.handler.(interface{ RegisterRoutes(*http.ServeMux) }); ok {
+		extra.RegisterRoutes(mux)
+	}
 
 	// Wrap with middleware
 	var h http.Handler = apiHandler

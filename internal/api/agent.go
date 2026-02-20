@@ -1,14 +1,12 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
-	"time"
 )
 
 const agentArtifactSource = "https://crate-operator.deploycrate.com/version"
@@ -31,85 +29,28 @@ func (h *APIHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 			w,
 			http.StatusBadRequest,
 			"error",
-			"artifact_source and artifact_version are required",
+			"artifact_version is required",
 		)
 		return
 	}
 
-	writeUpdateResponse(w, http.StatusAccepted, "update_initiated", "agent update initiated")
+	requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
+	deployReq := AgentDeployRequest{Version: req.ArtifactVersion}
+	if requestID != "" {
+		deployReq.RequestID = &requestID
+	}
+	if req.OverrideArtifactSource != nil && strings.TrimSpace(*req.OverrideArtifactSource) != "" {
+		deployReq.OverrideArtifactSource = req.OverrideArtifactSource
+	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
+	status, _, err := h.agentDeployMgr.Trigger(deployReq)
+	if err != nil {
+		writeUpdateResponse(w, http.StatusBadRequest, "error", err.Error())
+		return
+	}
 
-		binaryName := agentBinaryName()
-		tempFile, err := os.CreateTemp(agentInstallDir(), "crate-operator.*.tmp")
-		if err != nil {
-			slog.Error("failed to create temp file", "error", err)
-			return
-		}
-
-		tempPath := tempFile.Name()
-		success := false
-		defer func() {
-			if !success {
-				_ = os.Remove(tempPath)
-			}
-		}()
-
-		if err := tempFile.Close(); err != nil {
-			slog.Error("failed to close temp file", "error", err)
-			return
-		}
-
-		var binaryURL, checksumURL string
-		if req.OverrideArtifactSource != nil && *req.OverrideArtifactSource != "" {
-			binaryURL, checksumURL, err = buildArtifactURLs(
-				*req.OverrideArtifactSource,
-				req.ArtifactVersion,
-				binaryName,
-			)
-		} else {
-			binaryURL, checksumURL, err = buildArtifactURLs(
-				agentArtifactSource,
-				req.ArtifactVersion,
-				binaryName,
-			)
-		}
-		if err != nil {
-			slog.Error("failed to build artifact URLs", "error", err)
-			return
-		}
-
-		if err := downloadToFile(ctx, binaryURL, tempPath); err != nil {
-			slog.Error("failed to download binary", "error", err)
-			return
-		}
-
-		checksumBytes, err := fetchBytes(ctx, checksumURL)
-		if err != nil {
-			slog.Error("failed to download checksum", "error", err)
-			return
-		}
-
-		if err := verifyChecksum(tempPath, string(checksumBytes)); err != nil {
-			slog.Error("checksum verification failed", "error", err)
-			return
-		}
-
-		if err := os.Chmod(tempPath, 0o755); err != nil {
-			slog.Error("failed to chmod binary", "error", err)
-			return
-		}
-
-		if err := installAgentBinary(tempPath); err != nil {
-			slog.Error("failed to install new agent binary", "error", err)
-			return
-		}
-
-		success = true
-		slog.Info("agent update successful, restarting to new version")
-	}()
+	msg := fmt.Sprintf("agent update initiated (deployment_id=%s)", status.DeploymentID)
+	writeUpdateResponse(w, http.StatusAccepted, "update_initiated", msg)
 }
 
 // GetHealth implements ServerInterface.
@@ -120,13 +61,81 @@ func (h *APIHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *APIHandler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /v1/agent/deploy", h.handleAgentDeploy)
+	mux.HandleFunc("GET /v1/agent/deploy/{deployment_id}", h.handleAgentDeploymentStatus)
+	mux.HandleFunc("GET /readyz", h.handleReadyz)
+}
+
+func (h *APIHandler) handleAgentDeploy(w http.ResponseWriter, r *http.Request) {
+	var req AgentDeployRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))
+		return
+	}
+
+	status, reused, err := h.agentDeployMgr.Trigger(req)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	state := status.State
+	if !reused && state == "queued" {
+		state = "queued"
+	}
+	writeJSON(w, http.StatusAccepted, AgentDeployResponse{
+		DeploymentID: status.DeploymentID,
+		State:        state,
+	})
+}
+
+func (h *APIHandler) handleAgentDeploymentStatus(w http.ResponseWriter, r *http.Request) {
+	deploymentID := strings.TrimSpace(r.PathValue("deployment_id"))
+	if deploymentID == "" {
+		writeJSONError(w, http.StatusBadRequest, "deployment_id is required")
+		return
+	}
+
+	status, ok := h.agentDeployMgr.Get(deploymentID)
+	if !ok {
+		writeJSONError(w, http.StatusNotFound, "deployment not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (h *APIHandler) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if _, err := os.Stat("/opt/deploy-crate/slots"); err != nil {
+		writeJSONError(w, http.StatusServiceUnavailable, fmt.Sprintf("slots path unavailable: %v", err))
+		return
+	}
+	if _, err := exec.LookPath("systemctl"); err != nil {
+		writeJSONError(w, http.StatusServiceUnavailable, fmt.Sprintf("systemctl unavailable: %v", err))
+		return
+	}
+	if _, err := NewCaddyManager().GetAgentRouteState(); err != nil {
+		writeJSONError(w, http.StatusServiceUnavailable, fmt.Sprintf("caddy route unavailable: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func agentBinaryName() string {
 	return "crate-operator-linux-amd64"
 }
 
-func agentInstallDir() string {
-	return "/opt/crate-operator"
+func writeJSON(w http.ResponseWriter, statusCode int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+func writeJSONError(w http.ResponseWriter, statusCode int, message string) {
+	writeJSON(w, statusCode, map[string]string{"error": message})
 }

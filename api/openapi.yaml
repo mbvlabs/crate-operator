@@ -213,6 +213,74 @@ components:
           type: string
         message:
           type: string
+    AgentDeployRequest:
+      type: object
+      required:
+        - version
+      properties:
+        version:
+          type: string
+        checksum:
+          type: string
+        request_id:
+          type: string
+    AgentDeployResponse:
+      type: object
+      required:
+        - deployment_id
+        - state
+      properties:
+        deployment_id:
+          type: string
+        state:
+          type: string
+          enum: [queued, running, failed, succeeded, rolling_back]
+    AgentDeploymentStatus:
+      type: object
+      required:
+        - deployment_id
+        - state
+        - active_slot_before
+        - active_slot_current
+        - current_step
+        - updated_at
+      properties:
+        deployment_id:
+          type: string
+        request_id:
+          type: string
+        target_version:
+          type: string
+        state:
+          type: string
+          enum: [queued, running, failed, succeeded, rolling_back]
+        active_slot_before:
+          type: string
+          enum: [green, blue]
+        active_slot_current:
+          type: string
+          enum: [green, blue]
+        current_step:
+          type: string
+        error:
+          type: string
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+    ReadyzResponse:
+      type: object
+      properties:
+        status:
+          type: string
 
     DeployResponse:
       type: object
@@ -295,6 +363,84 @@ paths:
                 $ref: "#/components/schemas/UpdateAgentResponse"
         "500":
           description: Server Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateAgentResponse"
+
+  /v1/agent/deploy:
+    post:
+      operationId: deployAgent
+      summary: Trigger asynchronous agent deployment
+      tags:
+        - Agent
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentDeployRequest"
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentDeployResponse"
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateAgentResponse"
+
+  /v1/agent/deploy/{deployment_id}:
+    get:
+      operationId: getAgentDeploymentStatus
+      summary: Get deployment status
+      tags:
+        - Agent
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: deployment_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deployment status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentDeploymentStatus"
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateAgentResponse"
+
+  /readyz:
+    get:
+      operationId: getReadyz
+      summary: Readiness check
+      tags:
+        - Health
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyzResponse"
+        "503":
+          description: Not ready
           content:
             application/json:
               schema:
