@@ -56,8 +56,10 @@ func (h *APIHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := UpdateAgentResponse{
-		Status:       ptrString("update_initiated"),
-		Message:      ptrString(fmt.Sprintf("agent update initiated (deployment_id=%s)", status.DeploymentID)),
+		Status: ptrString("update_initiated"),
+		Message: ptrString(
+			fmt.Sprintf("agent update initiated (deployment_id=%s)", status.DeploymentID),
+		),
 		DeploymentId: &status.DeploymentID,
 	}
 	if activeSlot, slotErr := runningAgentSlot(); slotErr == nil && activeSlot != "" {
@@ -126,15 +128,27 @@ func (h *APIHandler) handleAgentDeploymentStatus(w http.ResponseWriter, r *http.
 
 func (h *APIHandler) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat("/opt/deploy-crate/agent"); err != nil {
-		writeJSONError(w, http.StatusServiceUnavailable, fmt.Sprintf("agent path unavailable: %v", err))
+		writeJSONError(
+			w,
+			http.StatusServiceUnavailable,
+			fmt.Sprintf("agent path unavailable: %v", err),
+		)
 		return
 	}
 	if _, err := exec.LookPath("systemctl"); err != nil {
-		writeJSONError(w, http.StatusServiceUnavailable, fmt.Sprintf("systemctl unavailable: %v", err))
+		writeJSONError(
+			w,
+			http.StatusServiceUnavailable,
+			fmt.Sprintf("systemctl unavailable: %v", err),
+		)
 		return
 	}
 	if _, err := NewCaddyManager().GetAgentRouteState(); err != nil {
-		writeJSONError(w, http.StatusServiceUnavailable, fmt.Sprintf("caddy route unavailable: %v", err))
+		writeJSONError(
+			w,
+			http.StatusServiceUnavailable,
+			fmt.Sprintf("caddy route unavailable: %v", err),
+		)
 		return
 	}
 

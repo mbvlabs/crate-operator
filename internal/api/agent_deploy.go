@@ -560,6 +560,7 @@ func (m *AgentDeploymentManager) emitCallbackStatus(
 	if strings.TrimSpace(externalDeployID) != "" {
 		groupingID = externalDeployID
 	}
+	callbackDeploymentID := groupingID
 
 	event := DeploymentEvent{
 		GroupingID:        groupingID,
@@ -569,7 +570,7 @@ func (m *AgentDeploymentManager) emitCallbackStatus(
 		Status:            "in_progress",
 		Message:           fmt.Sprintf("agent update %s", st.CurrentStep),
 		Error:             "",
-		DeploymentID:      st.DeploymentID,
+		DeploymentID:      callbackDeploymentID,
 		ActiveSlotBefore:  st.ActiveSlotBefore,
 		ActiveSlotCurrent: st.ActiveSlotCurrent,
 		TargetVersion:     st.TargetVersion,

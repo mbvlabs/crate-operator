@@ -190,7 +190,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 
 		groupingID := xid.New().String()
 
-		emitter := NewCallbackEmitter(req.CallbackUrl, h.apiKey)
+		emitter := NewCallbackEmitter(req.CallbackUrl, h.apiKey).WithDeploymentID(req.DeploymentId)
 
 		if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
 			GroupingID: groupingID,
@@ -657,7 +657,7 @@ func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 
 		groupingID := xid.New().String()
 
-		emitter := NewCallbackEmitter(req.CallbackUrl, h.apiKey)
+		emitter := NewCallbackEmitter(req.CallbackUrl, h.apiKey).WithDeploymentID(req.DeploymentId)
 		if emitter == nil {
 			slog.Error("callback emitter not configured")
 			return
