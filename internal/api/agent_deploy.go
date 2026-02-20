@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -26,10 +25,9 @@ const (
 	agentSlotBlue       = "blue"
 	agentGreenPort      = 9640
 	agentBluePort       = 9641
-	agentServiceGreen   = "deploy-crate-agent-green.service"
-	agentServiceBlue    = "deploy-crate-agent-blue.service"
+	agentServiceGreen   = "deploy-crate-agent-green"
+	agentServiceBlue    = "deploy-crate-agent-blue"
 	agentDeployStateDir = "/opt/deploy-crate/agent"
-	agentDeployState    = "/opt/deploy-crate/agent/deployments.json"
 	agentDeployLockPath = "/tmp/deploy-crate-agent-deploy.lock"
 )
 
@@ -37,6 +35,8 @@ type AgentDeployRequest struct {
 	Version                string  `json:"version"`
 	Checksum               *string `json:"checksum,omitempty"`
 	RequestID              *string `json:"request_id,omitempty"`
+	DeploymentID           *string `json:"deployment_id,omitempty"`
+	CallbackURL            *string `json:"callback_url,omitempty"`
 	OverrideArtifactSource *string `json:"-"`
 }
 
@@ -58,14 +58,11 @@ type AgentDeploymentStatus struct {
 	UpdatedAt         time.Time  `json:"updated_at"`
 	FinishedAt        *time.Time `json:"finished_at"`
 
-	checksum *string
-	source   *string
-	host     string
-}
-
-type agentDeployStateFile struct {
-	Deployments  map[string]*AgentDeploymentStatus `json:"deployments"`
-	RequestIndex map[string]string                 `json:"request_index"`
+	checksum         *string
+	source           *string
+	host             string
+	callbackURL      string
+	externalDeployID string
 }
 
 type AgentDeploymentManager struct {
@@ -83,7 +80,6 @@ func NewAgentDeploymentManager(apiKey string) *AgentDeploymentManager {
 		queue:        make(chan string, 64),
 		apiKey:       apiKey,
 	}
-	m.load()
 	go m.worker()
 	return m
 }
@@ -97,6 +93,14 @@ func (m *AgentDeploymentManager) Trigger(req AgentDeployRequest) (*AgentDeployme
 	requestID := ""
 	if req.RequestID != nil {
 		requestID = strings.TrimSpace(*req.RequestID)
+	}
+	externalDeployID := ""
+	if req.DeploymentID != nil {
+		externalDeployID = strings.TrimSpace(*req.DeploymentID)
+	}
+	callbackURL := ""
+	if req.CallbackURL != nil {
+		callbackURL = strings.TrimSpace(*req.CallbackURL)
 	}
 
 	m.mu.Lock()
@@ -114,23 +118,25 @@ func (m *AgentDeploymentManager) Trigger(req AgentDeployRequest) (*AgentDeployme
 	deploymentID := randomID()
 	now := time.Now().UTC()
 	status := &AgentDeploymentStatus{
-		DeploymentID:  deploymentID,
-		RequestID:     requestID,
-		TargetVersion: version,
-		State:         "queued",
-		CurrentStep:   "queued",
-		UpdatedAt:     now,
-		checksum:      req.Checksum,
-		source:        req.OverrideArtifactSource,
+		DeploymentID:     deploymentID,
+		RequestID:        requestID,
+		TargetVersion:    version,
+		State:            "queued",
+		CurrentStep:      "queued",
+		UpdatedAt:        now,
+		checksum:         req.Checksum,
+		source:           req.OverrideArtifactSource,
+		callbackURL:      callbackURL,
+		externalDeployID: externalDeployID,
 	}
 
 	if requestID != "" {
 		m.requestIndex[requestID] = deploymentID
 	}
 	m.deployments[deploymentID] = status
-	m.persistLocked()
 	m.mu.Unlock()
 
+	m.emitCallbackStatus(cloneDeployment(status), callbackURL, externalDeployID)
 	m.queue <- deploymentID
 	return cloneDeployment(status), false, nil
 }
@@ -469,77 +475,19 @@ func (m *AgentDeploymentManager) checkHealth(ctx context.Context, url, host stri
 
 func (m *AgentDeploymentManager) update(id string, mutate func(st *AgentDeploymentStatus)) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	st, ok := m.deployments[id]
 	if !ok {
+		m.mu.Unlock()
 		return errors.New("deployment not found")
 	}
 	mutate(st)
-	m.persistLocked()
+	snapshot := cloneDeployment(st)
+	callbackURL := st.callbackURL
+	externalDeployID := st.externalDeployID
+	m.mu.Unlock()
+
+	m.emitCallbackStatus(snapshot, callbackURL, externalDeployID)
 	return nil
-}
-
-func (m *AgentDeploymentManager) persistLocked() {
-	if err := os.MkdirAll(agentDeployStateDir, 0o755); err != nil {
-		return
-	}
-
-	state := agentDeployStateFile{
-		Deployments:  map[string]*AgentDeploymentStatus{},
-		RequestIndex: map[string]string{},
-	}
-	for k, v := range m.deployments {
-		copy := cloneDeployment(v)
-		state.Deployments[k] = copy
-	}
-	for k, v := range m.requestIndex {
-		state.RequestIndex[k] = v
-	}
-
-	payload, err := json.Marshal(state)
-	if err != nil {
-		return
-	}
-
-	tmp := agentDeployState + ".tmp"
-	if err := os.WriteFile(tmp, payload, 0o644); err != nil {
-		return
-	}
-	_ = os.Rename(tmp, agentDeployState)
-}
-
-func (m *AgentDeploymentManager) load() {
-	payload, err := os.ReadFile(agentDeployState)
-	if err != nil {
-		return
-	}
-
-	var state agentDeployStateFile
-	if err := json.Unmarshal(payload, &state); err != nil {
-		return
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if state.Deployments != nil {
-		m.deployments = state.Deployments
-	}
-	if state.RequestIndex != nil {
-		m.requestIndex = state.RequestIndex
-	}
-
-	for _, st := range m.deployments {
-		if st.State == "running" || st.State == "queued" || st.State == "rolling_back" {
-			now := time.Now().UTC()
-			msg := "agent restarted during deployment; marked failed"
-			st.State = "failed"
-			st.Error = &msg
-			st.FinishedAt = &now
-			st.UpdatedAt = now
-		}
-	}
-	m.persistLocked()
 }
 
 func (m *AgentDeploymentManager) versionOf(id string) string {
@@ -577,6 +525,8 @@ func cloneDeployment(st *AgentDeploymentStatus) *AgentDeploymentStatus {
 	copy.checksum = nil
 	copy.source = nil
 	copy.host = ""
+	copy.callbackURL = ""
+	copy.externalDeployID = ""
 	if st.Error != nil {
 		errCopy := *st.Error
 		copy.Error = &errCopy
@@ -590,6 +540,67 @@ func cloneDeployment(st *AgentDeploymentStatus) *AgentDeploymentStatus {
 		copy.FinishedAt = &finished
 	}
 	return &copy
+}
+
+func (m *AgentDeploymentManager) emitCallbackStatus(
+	st *AgentDeploymentStatus,
+	callbackURL string,
+	externalDeployID string,
+) {
+	if st == nil || strings.TrimSpace(callbackURL) == "" {
+		return
+	}
+
+	emitter := NewCallbackEmitter(callbackURL, m.apiKey)
+	if emitter == nil {
+		return
+	}
+
+	groupingID := st.DeploymentID
+	if strings.TrimSpace(externalDeployID) != "" {
+		groupingID = externalDeployID
+	}
+
+	event := DeploymentEvent{
+		GroupingID:        groupingID,
+		Action:            "update_agent",
+		Scope:             "step",
+		Step:              st.CurrentStep,
+		Status:            "in_progress",
+		Message:           fmt.Sprintf("agent update %s", st.CurrentStep),
+		Error:             "",
+		DeploymentID:      st.DeploymentID,
+		ActiveSlotBefore:  st.ActiveSlotBefore,
+		ActiveSlotCurrent: st.ActiveSlotCurrent,
+		TargetVersion:     st.TargetVersion,
+	}
+
+	switch st.State {
+	case "succeeded":
+		event.Scope = "action"
+		event.Status = "completed"
+		event.Step = "completed"
+		event.Message = "agent update completed"
+	case "failed":
+		event.Scope = "step"
+		event.Status = "failed"
+		event.Message = "agent update failed"
+		if st.Error != nil {
+			event.Error = *st.Error
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := emitter.EmitDeploymentEvent(ctx, event); err != nil {
+		slog.Warn(
+			"failed to emit agent update callback event",
+			"deployment_id", st.DeploymentID,
+			"grouping_id", groupingID,
+			"url", callbackURL,
+			"error", err,
+		)
+	}
 }
 
 type deploymentLock struct {
@@ -638,10 +649,10 @@ func portForSlot(slot string) int {
 }
 
 func runSystemctl(args ...string) error {
-	cmd := exec.Command("systemctl", args...)
+	cmd := exec.Command("sudo", append([]string{"-n", "systemctl"}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("systemctl %s failed: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("sudo -n systemctl %s failed: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -669,13 +680,13 @@ func runningAgentSlot() (string, error) {
 }
 
 func isServiceActive(service string) (bool, error) {
-	cmd := exec.Command("systemctl", "is-active", "--quiet", service)
+	cmd := exec.Command("sudo", "-n", "systemctl", "is-active", "--quiet", service)
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			return false, nil
 		}
-		return false, fmt.Errorf("systemctl is-active %s failed: %w", service, err)
+		return false, fmt.Errorf("sudo -n systemctl is-active %s failed: %w", service, err)
 	}
 	return true, nil
 }

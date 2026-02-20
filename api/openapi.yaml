@@ -204,11 +204,23 @@ components:
       properties:
         artifact_version:
           type: string
+        deployment_id:
+          type: string
+        callback_url:
+          type: string
         override_artifact_source:
           type: string
     UpdateAgentResponse:
       type: object
       properties:
+        deployment_id:
+          type: string
+        active_slot_before:
+          type: string
+          enum: [green, blue]
+        active_slot_current:
+          type: string
+          enum: [green, blue]
         status:
           type: string
         message:
@@ -223,6 +235,10 @@ components:
         checksum:
           type: string
         request_id:
+          type: string
+        deployment_id:
+          type: string
+        callback_url:
           type: string
     AgentDeployResponse:
       type: object
