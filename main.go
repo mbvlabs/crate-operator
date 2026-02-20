@@ -19,7 +19,7 @@ import (
 //go:embed api/openapi.yaml
 var openapiSpec []byte
 
-var buildVersion = "0.1.0"
+var buildVersion = "0.5.2"
 
 func main() {
 	cfg, err := config.Load()
