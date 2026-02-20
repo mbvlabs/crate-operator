@@ -39,6 +39,12 @@ func (h *APIHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	if requestID != "" {
 		deployReq.RequestID = &requestID
 	}
+	if req.DeploymentId != nil && strings.TrimSpace(*req.DeploymentId) != "" {
+		deployReq.DeploymentID = req.DeploymentId
+	}
+	if req.CallbackUrl != nil && strings.TrimSpace(*req.CallbackUrl) != "" {
+		deployReq.CallbackURL = req.CallbackUrl
+	}
 	if req.OverrideArtifactSource != nil && strings.TrimSpace(*req.OverrideArtifactSource) != "" {
 		deployReq.OverrideArtifactSource = req.OverrideArtifactSource
 	}
@@ -49,8 +55,19 @@ func (h *APIHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msg := fmt.Sprintf("agent update initiated (deployment_id=%s)", status.DeploymentID)
-	writeUpdateResponse(w, http.StatusAccepted, "update_initiated", msg)
+	resp := UpdateAgentResponse{
+		Status: ptrString("update_initiated"),
+		Message: ptrString(
+			fmt.Sprintf("agent update initiated (deployment_id=%s)", status.DeploymentID),
+		),
+		DeploymentId: &status.DeploymentID,
+	}
+	if activeSlot, slotErr := runningAgentSlot(); slotErr == nil && activeSlot != "" {
+		resp.ActiveSlotBefore = &activeSlot
+		resp.ActiveSlotCurrent = &activeSlot
+	}
+
+	writeJSON(w, http.StatusAccepted, resp)
 }
 
 // GetHealth implements ServerInterface.
@@ -111,15 +128,27 @@ func (h *APIHandler) handleAgentDeploymentStatus(w http.ResponseWriter, r *http.
 
 func (h *APIHandler) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat("/opt/deploy-crate/agent"); err != nil {
-		writeJSONError(w, http.StatusServiceUnavailable, fmt.Sprintf("agent path unavailable: %v", err))
+		writeJSONError(
+			w,
+			http.StatusServiceUnavailable,
+			fmt.Sprintf("agent path unavailable: %v", err),
+		)
 		return
 	}
 	if _, err := exec.LookPath("systemctl"); err != nil {
-		writeJSONError(w, http.StatusServiceUnavailable, fmt.Sprintf("systemctl unavailable: %v", err))
+		writeJSONError(
+			w,
+			http.StatusServiceUnavailable,
+			fmt.Sprintf("systemctl unavailable: %v", err),
+		)
 		return
 	}
 	if _, err := NewCaddyManager().GetAgentRouteState(); err != nil {
-		writeJSONError(w, http.StatusServiceUnavailable, fmt.Sprintf("caddy route unavailable: %v", err))
+		writeJSONError(
+			w,
+			http.StatusServiceUnavailable,
+			fmt.Sprintf("caddy route unavailable: %v", err),
+		)
 		return
 	}
 
@@ -138,4 +167,8 @@ func writeJSON(w http.ResponseWriter, statusCode int, body any) {
 
 func writeJSONError(w http.ResponseWriter, statusCode int, message string) {
 	writeJSON(w, statusCode, map[string]string{"error": message})
+}
+
+func ptrString(v string) *string {
+	return &v
 }

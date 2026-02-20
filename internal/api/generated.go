@@ -114,13 +114,18 @@ type HealthResponseStatus string
 // UpdateAgentRequest defines model for UpdateAgentRequest.
 type UpdateAgentRequest struct {
 	ArtifactVersion        string  `json:"artifact_version"`
+	CallbackUrl            *string `json:"callback_url,omitempty"`
+	DeploymentId           *string `json:"deployment_id,omitempty"`
 	OverrideArtifactSource *string `json:"override_artifact_source,omitempty"`
 }
 
 // UpdateAgentResponse defines model for UpdateAgentResponse.
 type UpdateAgentResponse struct {
-	Message *string `json:"message,omitempty"`
-	Status  *string `json:"status,omitempty"`
+	ActiveSlotBefore  *string `json:"active_slot_before,omitempty"`
+	ActiveSlotCurrent *string `json:"active_slot_current,omitempty"`
+	DeploymentId      *string `json:"deployment_id,omitempty"`
+	Message           *string `json:"message,omitempty"`
+	Status            *string `json:"status,omitempty"`
 }
 
 // UpdateAgentJSONRequestBody defines body for UpdateAgent for application/json ContentType.
