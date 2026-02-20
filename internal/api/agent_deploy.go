@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -8,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -170,28 +173,6 @@ func (m *AgentDeploymentManager) execute(id string) {
 	defer lock.release()
 
 	cm := NewCaddyManager()
-	state, err := cm.GetAgentRouteState()
-	if err != nil {
-		m.fail(id, "read_active_slot", err)
-		return
-	}
-	if err := m.update(id, func(st *AgentDeploymentStatus) {
-		st.CurrentStep = "read_active_slot"
-		st.ActiveSlotBefore = state.ActiveSlot
-		st.ActiveSlotCurrent = state.ActiveSlot
-		st.host = state.Host
-		st.UpdatedAt = time.Now().UTC()
-	}); err != nil {
-		return
-	}
-
-	inactiveSlot := otherSlot(state.ActiveSlot)
-	if err := m.update(id, func(st *AgentDeploymentStatus) {
-		st.CurrentStep = "determine_inactive_slot"
-		st.UpdatedAt = time.Now().UTC()
-	}); err != nil {
-		return
-	}
 
 	if err := os.MkdirAll(agentDeployStateDir, 0o755); err != nil {
 		m.fail(id, "download_artifact", err)
@@ -203,14 +184,18 @@ func (m *AgentDeploymentManager) execute(id string) {
 		return
 	}
 	tempPath := tempFile.Name()
-	_ = tempFile.Close()
+	if err := tempFile.Close(); err != nil {
+		m.fail(id, "download_artifact", fmt.Errorf("failed to prepare temporary artifact file: %w", err))
+		return
+	}
 	defer os.Remove(tempPath)
 
 	source := agentArtifactSource
 	if override := m.sourceOf(id); override != nil && strings.TrimSpace(*override) != "" {
 		source = strings.TrimSpace(*override)
 	}
-	binaryURL, checksumURL, err := buildArtifactURLs(source, m.versionOf(id), agentBinaryName())
+	binaryName := agentBinaryName()
+	binaryURL, checksumURL, err := buildArtifactURLs(source, m.versionOf(id), binaryName)
 	if err != nil {
 		m.fail(id, "download_artifact", err)
 		return
@@ -241,7 +226,12 @@ func (m *AgentDeploymentManager) execute(id string) {
 			m.fail(id, "verify_checksum", fetchErr)
 			return
 		}
-		expectedChecksum = string(checksumBytes)
+		parsedChecksum, parseErr := parseChecksumFromChecksumsFile(checksumBytes, binaryName)
+		if parseErr != nil {
+			m.fail(id, "verify_checksum", parseErr)
+			return
+		}
+		expectedChecksum = parsedChecksum
 	}
 	if err := verifyChecksum(tempPath, expectedChecksum); err != nil {
 		m.fail(id, "verify_checksum", err)
@@ -249,13 +239,63 @@ func (m *AgentDeploymentManager) execute(id string) {
 	}
 
 	if err := m.update(id, func(st *AgentDeploymentStatus) {
-		st.CurrentStep = "install_inactive_slot"
+		st.CurrentStep = "swap_agent_binary"
 		st.UpdatedAt = time.Now().UTC()
 	}); err != nil {
 		return
 	}
-	if err := installBinaryToSlot(tempPath, inactiveSlot); err != nil {
-		m.beforeCutoverFailure(id, inactiveSlot, "install_inactive_slot", err)
+	agentBinaryPath, err := os.Executable()
+	if err != nil {
+		m.fail(id, "swap_agent_binary", fmt.Errorf("failed to resolve agent binary path: %w", err))
+		return
+	}
+	backupPath, err := swapAgentBinary(tempPath, agentBinaryPath)
+	if err != nil {
+		m.fail(id, "swap_agent_binary", err)
+		return
+	}
+	restoreBinary := func(baseErr error) error {
+		if restoreErr := restoreAgentBinary(agentBinaryPath, backupPath); restoreErr != nil {
+			return errors.Join(baseErr, fmt.Errorf("rollback restore failed: %w", restoreErr))
+		}
+		return baseErr
+	}
+	removeBackup := func() error {
+		if backupPath == "" {
+			return nil
+		}
+		if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove backup binary %s: %w", backupPath, err)
+		}
+		return nil
+	}
+
+	if err := m.update(id, func(st *AgentDeploymentStatus) {
+		st.CurrentStep = "detect_running_service"
+		st.UpdatedAt = time.Now().UTC()
+	}); err != nil {
+		return
+	}
+	activeSlot, err := runningAgentSlot()
+	if err != nil {
+		m.fail(id, "detect_running_service", restoreBinary(err))
+		return
+	}
+	inactiveSlot := otherSlot(activeSlot)
+	activeService := serviceForSlot(activeSlot)
+	inactiveService := serviceForSlot(inactiveSlot)
+	emitAgentDeployEvent(id, "running_service_detected",
+		"active_slot", activeSlot,
+		"active_service", activeService,
+		"inactive_slot", inactiveSlot,
+		"inactive_service", inactiveService,
+	)
+	if err := m.update(id, func(st *AgentDeploymentStatus) {
+		st.ActiveSlotBefore = activeSlot
+		st.ActiveSlotCurrent = activeSlot
+		st.CurrentStep = "determine_inactive_slot"
+		st.UpdatedAt = time.Now().UTC()
+	}); err != nil {
 		return
 	}
 
@@ -266,7 +306,7 @@ func (m *AgentDeploymentManager) execute(id string) {
 		return
 	}
 	if err := runSystemctl("start", serviceForSlot(inactiveSlot)); err != nil {
-		m.beforeCutoverFailure(id, inactiveSlot, "start_inactive_slot_service", err)
+		m.fail(id, "start_inactive_slot_service", restoreBinary(err))
 		return
 	}
 
@@ -277,7 +317,11 @@ func (m *AgentDeploymentManager) execute(id string) {
 		return
 	}
 	if err := m.verifySlotHealth(ctx, inactiveSlot); err != nil {
-		m.beforeCutoverFailure(id, inactiveSlot, "verify_inactive_slot_readiness", err)
+		cleanupErr := err
+		if stopErr := runSystemctl("stop", serviceForSlot(inactiveSlot)); stopErr != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("failed to stop inactive service during rollback: %w", stopErr))
+		}
+		m.fail(id, "verify_inactive_slot_readiness", restoreBinary(cleanupErr))
 		return
 	}
 
@@ -288,9 +332,19 @@ func (m *AgentDeploymentManager) execute(id string) {
 		return
 	}
 	if err := cm.SetAgentTrafficSlot(inactiveSlot); err != nil {
-		m.fail(id, "switch_traffic_to_inactive", err)
+		cleanupErr := err
+		if stopErr := runSystemctl("stop", serviceForSlot(inactiveSlot)); stopErr != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("failed to stop inactive service during rollback: %w", stopErr))
+		}
+		m.fail(id, "switch_traffic_to_inactive", restoreBinary(cleanupErr))
 		return
 	}
+	emitAgentDeployEvent(id, "traffic_switched",
+		"active_slot", inactiveSlot,
+		"active_service", inactiveService,
+		"previous_slot", activeSlot,
+		"previous_service", activeService,
+	)
 	if err := m.update(id, func(st *AgentDeploymentStatus) {
 		st.ActiveSlotCurrent = inactiveSlot
 		st.UpdatedAt = time.Now().UTC()
@@ -305,90 +359,30 @@ func (m *AgentDeploymentManager) execute(id string) {
 		return
 	}
 	if err := m.verifyPublicHealth(ctx, id); err != nil {
-		m.fail(id, "verify_public_path_after_cutover", err)
-		return
-	}
-
-	prevActive := state.ActiveSlot
-	if err := m.update(id, func(st *AgentDeploymentStatus) {
-		st.CurrentStep = "install_previous_active_slot"
-		st.UpdatedAt = time.Now().UTC()
-	}); err != nil {
-		return
-	}
-	if err := installBinaryToSlot(tempPath, prevActive); err != nil {
-		m.afterFirstCutoverFailure(id, "install_previous_active_slot", err)
+		cleanupErr := err
+		if caddyErr := cm.SetAgentTrafficSlot(activeSlot); caddyErr != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("failed to restore caddy traffic during rollback: %w", caddyErr))
+		}
+		if stopErr := runSystemctl("stop", serviceForSlot(inactiveSlot)); stopErr != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("failed to stop inactive service during rollback: %w", stopErr))
+		}
+		m.fail(id, "verify_public_path_after_cutover", restoreBinary(cleanupErr))
 		return
 	}
 
 	if err := m.update(id, func(st *AgentDeploymentStatus) {
-		st.CurrentStep = "restart_previous_active_slot_service"
+		st.CurrentStep = "stop_previous_active_service"
 		st.UpdatedAt = time.Now().UTC()
 	}); err != nil {
 		return
 	}
-	if err := runSystemctl("restart", serviceForSlot(prevActive)); err != nil {
-		m.afterFirstCutoverFailure(id, "restart_previous_active_slot_service", err)
+	if err := runSystemctl("stop", serviceForSlot(activeSlot)); err != nil {
+		m.fail(id, "stop_previous_active_service", err)
 		return
 	}
-
-	if err := m.update(id, func(st *AgentDeploymentStatus) {
-		st.CurrentStep = "verify_restarted_slot_readiness"
-		st.UpdatedAt = time.Now().UTC()
-	}); err != nil {
-		return
-	}
-	if err := m.verifySlotHealth(ctx, prevActive); err != nil {
-		m.afterFirstCutoverFailure(id, "verify_restarted_slot_readiness", err)
-		return
-	}
-
-	if err := m.update(id, func(st *AgentDeploymentStatus) {
-		st.CurrentStep = "switch_traffic_to_green"
-		st.UpdatedAt = time.Now().UTC()
-	}); err != nil {
-		return
-	}
-	if err := cm.SetAgentTrafficSlot(agentSlotGreen); err != nil {
-		m.afterFirstCutoverFailure(id, "switch_traffic_to_green", err)
-		return
-	}
-	if err := m.update(id, func(st *AgentDeploymentStatus) {
-		st.ActiveSlotCurrent = agentSlotGreen
-		st.UpdatedAt = time.Now().UTC()
-	}); err != nil {
-		return
-	}
-
-	if err := m.update(id, func(st *AgentDeploymentStatus) {
-		st.CurrentStep = "verify_public_path_after_cutback"
-		st.UpdatedAt = time.Now().UTC()
-	}); err != nil {
-		return
-	}
-	if err := m.verifyPublicHealth(ctx, id); err != nil {
-		_ = m.update(id, func(st *AgentDeploymentStatus) {
-			st.State = "rolling_back"
-			st.CurrentStep = "rollback_to_blue"
-			st.UpdatedAt = time.Now().UTC()
-		})
-		_ = cm.SetAgentTrafficSlot(agentSlotBlue)
-		_ = m.update(id, func(st *AgentDeploymentStatus) {
-			st.ActiveSlotCurrent = agentSlotBlue
-			st.UpdatedAt = time.Now().UTC()
-		})
-		m.fail(id, "verify_public_path_after_cutback", err)
-		return
-	}
-
-	if err := m.update(id, func(st *AgentDeploymentStatus) {
-		st.CurrentStep = "stop_blue_service"
-		st.UpdatedAt = time.Now().UTC()
-	}); err != nil {
-		return
-	}
-	if err := runSystemctl("stop", serviceForSlot(agentSlotBlue)); err != nil {
-		m.fail(id, "stop_blue_service", err)
+	emitAgentDeployEvent(id, "previous_service_stopped", "stopped_service", activeService)
+	if err := removeBackup(); err != nil {
+		m.fail(id, "cleanup_backup_binary", err)
 		return
 	}
 
@@ -402,16 +396,8 @@ func (m *AgentDeploymentManager) execute(id string) {
 	})
 }
 
-func (m *AgentDeploymentManager) beforeCutoverFailure(id, slot, step string, err error) {
-	_ = runSystemctl("stop", serviceForSlot(slot))
-	m.fail(id, step, err)
-}
-
-func (m *AgentDeploymentManager) afterFirstCutoverFailure(id, step string, err error) {
-	m.fail(id, step, err)
-}
-
 func (m *AgentDeploymentManager) fail(id, step string, err error) {
+	emitAgentDeployEvent(id, "deployment_failed", "step", step, "error", err.Error())
 	_ = m.update(id, func(st *AgentDeploymentStatus) {
 		now := time.Now().UTC()
 		msg := err.Error()
@@ -421,6 +407,11 @@ func (m *AgentDeploymentManager) fail(id, step string, err error) {
 		st.FinishedAt = &now
 		st.UpdatedAt = now
 	})
+}
+
+func emitAgentDeployEvent(deploymentID, event string, attrs ...any) {
+	base := []any{"deployment_id", deploymentID, "event", event}
+	slog.Info("agent deployment event", append(base, attrs...)...)
 }
 
 func (m *AgentDeploymentManager) verifySlotHealth(ctx context.Context, slot string) error {
@@ -646,45 +637,6 @@ func portForSlot(slot string) int {
 	return agentBluePort
 }
 
-func installBinaryToSlot(sourcePath, slot string) error {
-	slotDir := filepath.Join("/opt/deploy-crate/slots", slot)
-	if err := os.MkdirAll(slotDir, 0o755); err != nil {
-		return err
-	}
-
-	destPath := filepath.Join(slotDir, "crate-operator")
-	tempDest := fmt.Sprintf("%s.tmp.%s", destPath, randomID())
-
-	source, err := os.Open(sourcePath)
-	if err != nil {
-		return err
-	}
-	defer source.Close()
-
-	dest, err := os.OpenFile(tempDest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
-	if err != nil {
-		return err
-	}
-
-	if _, err := io.Copy(dest, source); err != nil {
-		_ = dest.Close()
-		_ = os.Remove(tempDest)
-		return err
-	}
-
-	if err := dest.Close(); err != nil {
-		_ = os.Remove(tempDest)
-		return err
-	}
-
-	if err := os.Rename(tempDest, destPath); err != nil {
-		_ = os.Remove(tempDest)
-		return err
-	}
-
-	return nil
-}
-
 func runSystemctl(args ...string) error {
 	cmd := exec.Command("systemctl", args...)
 	out, err := cmd.CombinedOutput()
@@ -692,6 +644,113 @@ func runSystemctl(args ...string) error {
 		return fmt.Errorf("systemctl %s failed: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+func runningAgentSlot() (string, error) {
+	greenActive, err := isServiceActive(agentServiceGreen)
+	if err != nil {
+		return "", err
+	}
+	blueActive, err := isServiceActive(agentServiceBlue)
+	if err != nil {
+		return "", err
+	}
+
+	switch {
+	case greenActive && blueActive:
+		return "", errors.New("both agent services are running; expected exactly one active service")
+	case !greenActive && !blueActive:
+		return "", errors.New("neither agent service is running; expected exactly one active service")
+	case greenActive:
+		return agentSlotGreen, nil
+	default:
+		return agentSlotBlue, nil
+	}
+}
+
+func isServiceActive(service string) (bool, error) {
+	cmd := exec.Command("systemctl", "is-active", "--quiet", service)
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return false, nil
+		}
+		return false, fmt.Errorf("systemctl is-active %s failed: %w", service, err)
+	}
+	return true, nil
+}
+
+func swapAgentBinary(sourcePath, destPath string) (string, error) {
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		return "", err
+	}
+
+	backupPath := destPath + ".backup." + randomID()
+	if err := os.Rename(destPath, backupPath); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("agent binary missing at %s", destPath)
+		}
+		return "", fmt.Errorf("failed to backup current binary: %w", err)
+	}
+
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		_ = os.Rename(backupPath, destPath)
+		return "", fmt.Errorf("failed to open downloaded binary: %w", err)
+	}
+	defer source.Close()
+
+	dest, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		_ = os.Rename(backupPath, destPath)
+		return "", fmt.Errorf("failed to open install target: %w", err)
+	}
+
+	if _, err := io.Copy(dest, source); err != nil {
+		_ = dest.Close()
+		_ = os.Rename(backupPath, destPath)
+		return "", fmt.Errorf("failed to write new binary: %w", err)
+	}
+
+	if err := dest.Close(); err != nil {
+		_ = os.Rename(backupPath, destPath)
+		return "", fmt.Errorf("failed to close new binary: %w", err)
+	}
+
+	return backupPath, nil
+}
+
+func restoreAgentBinary(destPath, backupPath string) error {
+	if backupPath == "" {
+		return nil
+	}
+	if err := os.Rename(backupPath, destPath); err != nil {
+		return fmt.Errorf("failed to restore backup binary: %w", err)
+	}
+	return nil
+}
+
+func parseChecksumFromChecksumsFile(content []byte, fileName string) (string, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(content))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		checksum := fields[0]
+		name := strings.TrimPrefix(fields[len(fields)-1], "*")
+		if name == fileName {
+			return checksum, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("checksum for %s not found in checksums file", fileName)
 }
 
 func randomID() string {
