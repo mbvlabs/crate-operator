@@ -6,8 +6,8 @@ import (
 )
 
 type Config struct {
-	BindAddr string `env:"MITHLOND_BIND_ADDR"`
-	APIKey   string `env:"MITHLOND_API_KEY"`
+	BindAddr string `env:"DEPLOY_CRATE_BIND_ADDR"`
+	APIKey   string `env:"DEPLOY_CRATE_API_KEY"`
 }
 
 func Load() (*Config, error) {

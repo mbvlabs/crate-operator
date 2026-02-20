@@ -28,7 +28,7 @@ func main() {
 		os.Exit(1)
 	}
 	if cfg.APIKey == "" {
-		slog.Error("missing API key", "env", "MITHLOND_API_KEY")
+		slog.Error("missing API key", "env", "DEPLOY_CRATE_API_KEY")
 		os.Exit(1)
 	}
 

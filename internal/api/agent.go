@@ -110,8 +110,8 @@ func (h *APIHandler) handleAgentDeploymentStatus(w http.ResponseWriter, r *http.
 }
 
 func (h *APIHandler) handleReadyz(w http.ResponseWriter, r *http.Request) {
-	if _, err := os.Stat("/opt/deploy-crate/slots"); err != nil {
-		writeJSONError(w, http.StatusServiceUnavailable, fmt.Sprintf("slots path unavailable: %v", err))
+	if _, err := os.Stat("/opt/deploy-crate/agent"); err != nil {
+		writeJSONError(w, http.StatusServiceUnavailable, fmt.Sprintf("agent path unavailable: %v", err))
 		return
 	}
 	if _, err := exec.LookPath("systemctl"); err != nil {

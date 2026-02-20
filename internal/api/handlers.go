@@ -77,7 +77,11 @@ func buildArtifactURLs(source, version, fileName string) (string, string, error)
 		if err != nil {
 			return "", "", err
 		}
-		return binaryURL, binaryURL + ".sha256", nil
+		checksumURL, err := url.JoinPath(source, version, "checksums.txt")
+		if err != nil {
+			return "", "", err
+		}
+		return binaryURL, checksumURL, nil
 	}
 
 	return "", "", fmt.Errorf("unsupported artifact_source scheme")
@@ -154,7 +158,7 @@ func buildSignedS3URLs(source, version, fileName string) (string, string, error)
 		accessKey,
 		secretKey,
 		bucket,
-		key+".sha256",
+		path.Join(path.Dir(key), "checksums.txt"),
 		15*time.Minute,
 	)
 	if err != nil {
