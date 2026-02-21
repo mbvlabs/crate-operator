@@ -1,4 +1,4 @@
-# Mithlond Agent development commands
+# Crate Operator Agent development commands
 set dotenv-load
 
 # Default recipe - show available commands

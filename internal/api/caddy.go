@@ -58,7 +58,7 @@ type AgentRouteState struct {
 
 // ConfigureRoute configures a Caddy reverse proxy route
 func (cm *CaddyManager) ConfigureRoute(domain string, port int) error {
-	routeID := fmt.Sprintf("mithlond_%s", sanitizeDomain(domain))
+	routeID := fmt.Sprintf("crate_operator_%s", sanitizeDomain(domain))
 
 	route := CaddyRoute{
 		ID: routeID,
@@ -175,7 +175,9 @@ func (cm *CaddyManager) GetAgentRouteState() (*AgentRouteState, error) {
 		}
 	}
 
-	return nil, errors.New("agent route with localhost:9640 and localhost:9641 upstreams not found in Caddy config")
+	return nil, errors.New(
+		"agent route with localhost:9640 and localhost:9641 upstreams not found in Caddy config",
+	)
 }
 
 func (cm *CaddyManager) SetAgentTrafficSlot(slot string) error {
@@ -241,7 +243,11 @@ func (cm *CaddyManager) SetAgentTrafficSlot(slot string) error {
 		return err
 	}
 	if verified.ActiveSlot != slot {
-		return fmt.Errorf("caddy weight verification failed: expected active slot %s, got %s", slot, verified.ActiveSlot)
+		return fmt.Errorf(
+			"caddy weight verification failed: expected active slot %s, got %s",
+			slot,
+			verified.ActiveSlot,
+		)
 	}
 	return nil
 }
@@ -262,7 +268,11 @@ func (cm *CaddyManager) getRoutes() ([]any, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("caddy routes query failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf(
+			"caddy routes query failed: status=%d body=%s",
+			resp.StatusCode,
+			strings.TrimSpace(string(body)),
+		)
 	}
 
 	var routes []any
@@ -295,7 +305,11 @@ func (cm *CaddyManager) putRoute(routeIndex int, route map[string]any) error {
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("caddy route update failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return fmt.Errorf(
+			"caddy route update failed: status=%d body=%s",
+			resp.StatusCode,
+			strings.TrimSpace(string(body)),
+		)
 	}
 
 	return nil
