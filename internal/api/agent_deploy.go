@@ -682,10 +682,21 @@ func runningAgentSlot() (string, error) {
 
 func isServiceActive(service string) (bool, error) {
 	cmd := exec.Command("sudo", "-n", "systemctl", "is-active", "--quiet", service)
-	if err := cmd.Run(); err != nil {
+	out, err := cmd.CombinedOutput()
+	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			return false, nil
+			// For `systemctl is-active --quiet`, exit code 3 means inactive.
+			// Other non-zero codes indicate real execution or unit lookup errors.
+			if exitErr.ExitCode() == 3 {
+				return false, nil
+			}
+			return false, fmt.Errorf(
+				"sudo -n systemctl is-active %s failed: exit_code=%d output=%s",
+				service,
+				exitErr.ExitCode(),
+				strings.TrimSpace(string(out)),
+			)
 		}
 		return false, fmt.Errorf("sudo -n systemctl is-active %s failed: %w", service, err)
 	}

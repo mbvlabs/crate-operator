@@ -1,4 +1,4 @@
-// Package server implements the HTTP server for the Mithlond Agent.
+// Package server implements the HTTP server for the Crate Operator Agent.
 package server
 
 import (

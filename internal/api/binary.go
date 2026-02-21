@@ -73,6 +73,25 @@ func internalBinaryName(environmentID string) string {
 	return fmt.Sprintf("%s-%s-app", environmentParts[0], environmentParts[1])
 }
 
+func managedServiceName(teamID, appID, environmentID string) string {
+	return strings.ToLower(
+		fmt.Sprintf("%s__%s__%s__deploycrate.service", teamID, appID, environmentID),
+	)
+}
+
+func managedServiceNameFromSlug(appSlug, environment string) string {
+	return strings.ToLower(
+		fmt.Sprintf("%s__%s__deploycrate.service", appSlug, environment),
+	)
+}
+
+func ensureServiceUnitName(serviceName string) string {
+	if strings.HasSuffix(serviceName, ".service") {
+		return serviceName
+	}
+	return serviceName + ".service"
+}
+
 func installBinaryWithBackup(ctx context.Context, binaryURL, binaryPath string) error {
 	backupBinaryPath := binaryPath + ".backup"
 	tempBinaryPath := fmt.Sprintf("%s.tmp-%s", binaryPath, xid.New().String())
@@ -215,8 +234,8 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Create app directory (under /opt/mithlond/tenants - group-writable, no sudo needed)
-		// e.g., /opt/mithlond/tenants/<team-slug>/apps/<app-id>/envs/<environment>
+		// Create app directory (under /opt/crate-operator/tenants - group-writable, no sudo needed)
+		// e.g., /opt/crate-operator/tenants/<team-slug>/apps/<app-id>/envs/<environment>
 		appDir := path.Join(
 			appsBaseDir(),
 			strings.ToLower(req.TeamId),
@@ -264,7 +283,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// e.g., /etc/mithlond/tenants/<team-slug>/apps/<app-id>/envs/<environment>
+		// e.g., /etc/crate-operator/tenants/<team-slug>/apps/<app-id>/envs/<environment>
 		configDir := path.Join(
 			appsConfigDir(),
 			strings.ToLower(req.TeamId),
@@ -439,9 +458,7 @@ func (h *APIHandler) CreateBinaryApp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Create systemd service (system unit, requires sudo)
-		serviceName := strings.ToLower(
-			fmt.Sprintf("%s__%s__%s", req.TeamId, req.AppId, req.EnvironmentId),
-		)
+		serviceName := managedServiceName(req.TeamId, req.AppId, req.EnvironmentId)
 		if err := createSystemdService(serviceName, binaryPath, appDir, configDir, req.Port, nil); err != nil {
 			if err := emitter.EmitDeploymentEvent(ctx, DeploymentEvent{
 				Scope:      "step",
@@ -806,9 +823,7 @@ func (h *APIHandler) DeployBinaryApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		serviceName := strings.ToLower(
-			fmt.Sprintf("%s__%s__%s", req.TeamId, req.AppId, req.EnvironmentId),
-		)
+		serviceName := managedServiceName(req.TeamId, req.AppId, req.EnvironmentId)
 		configDir := path.Join(
 			appsConfigDir(),
 			strings.ToLower(req.TeamId),
@@ -990,7 +1005,7 @@ func (h *APIHandler) StartApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	serviceName := fmt.Sprintf("%s-%s", req.AppSlug, req.Environment)
+	serviceName := managedServiceNameFromSlug(req.AppSlug, req.Environment)
 	output, err := sudoRun("systemctl", "start", serviceName).CombinedOutput()
 	if err != nil {
 		writeAppActionResponse(
@@ -1026,7 +1041,7 @@ func (h *APIHandler) StopApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	serviceName := fmt.Sprintf("%s-%s", req.AppSlug, req.Environment)
+	serviceName := managedServiceNameFromSlug(req.AppSlug, req.Environment)
 	output, err := sudoRun("systemctl", "stop", serviceName).CombinedOutput()
 	if err != nil {
 		writeAppActionResponse(
@@ -1062,7 +1077,7 @@ func (h *APIHandler) RestartApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	serviceName := fmt.Sprintf("%s-%s", req.AppSlug, req.Environment)
+	serviceName := managedServiceNameFromSlug(req.AppSlug, req.Environment)
 	output, err := sudoRun("systemctl", "restart", serviceName).CombinedOutput()
 	if err != nil {
 		writeAppActionResponse(
@@ -1122,5 +1137,5 @@ WantedBy=multi-user.target
 }
 
 func systemdServicePath(serviceName string) string {
-	return path.Join("/etc/systemd/system", serviceName+".service")
+	return path.Join("/etc/systemd/system", ensureServiceUnitName(serviceName))
 }
