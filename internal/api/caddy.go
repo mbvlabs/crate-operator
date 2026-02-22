@@ -141,43 +141,72 @@ func (cm *CaddyManager) GetAgentRouteState() (*AgentRouteState, error) {
 			continue
 		}
 
-		for _, h := range handle {
-			handleMap, ok := h.(map[string]any)
-			if !ok {
-				continue
-			}
-			if handleMap["handler"] != "reverse_proxy" {
-				continue
-			}
-
-			upstreams, ok := handleMap["upstreams"].([]any)
-			if !ok || len(upstreams) < 2 {
-				continue
-			}
-
-			weights, found := extractAgentWeights(handleMap, upstreams)
-			if !found {
-				continue
-			}
-
-			activeSlot, err := activeSlotFromWeights(weights.green, weights.blue)
-			if err != nil {
-				return nil, err
-			}
-
-			host := extractRouteHost(routeMap)
-			return &AgentRouteState{
-				RouteIndex: i,
-				Host:       host,
-				ActiveSlot: activeSlot,
-				Route:      routeMap,
-			}, nil
+		rpHandle := findReverseProxyInHandles(handle)
+		if rpHandle == nil {
+			continue
 		}
+
+		upstreams, ok := rpHandle["upstreams"].([]any)
+		if !ok || len(upstreams) < 2 {
+			continue
+		}
+
+		weights, found := extractAgentWeights(rpHandle, upstreams)
+		if !found {
+			continue
+		}
+
+		activeSlot, err := activeSlotFromWeights(weights.green, weights.blue)
+		if err != nil {
+			return nil, err
+		}
+
+		host := extractRouteHost(routeMap)
+		return &AgentRouteState{
+			RouteIndex: i,
+			Host:       host,
+			ActiveSlot: activeSlot,
+			Route:      routeMap,
+		}, nil
 	}
 
 	return nil, errors.New(
 		"agent route with localhost:9640 and localhost:9641 upstreams not found in Caddy config",
 	)
+}
+
+// findReverseProxyInHandles searches handles (and nested subroute handles) for a reverse_proxy handler.
+// Returns the handler map directly so callers can modify it in place.
+func findReverseProxyInHandles(handles []any) map[string]any {
+	for _, h := range handles {
+		hMap, ok := h.(map[string]any)
+		if !ok {
+			continue
+		}
+		if hMap["handler"] == "reverse_proxy" {
+			return hMap
+		}
+		if hMap["handler"] == "subroute" {
+			routes, ok := hMap["routes"].([]any)
+			if !ok {
+				continue
+			}
+			for _, r := range routes {
+				rMap, ok := r.(map[string]any)
+				if !ok {
+					continue
+				}
+				subHandles, ok := rMap["handle"].([]any)
+				if !ok {
+					continue
+				}
+				if found := findReverseProxyInHandles(subHandles); found != nil {
+					return found
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (cm *CaddyManager) SetAgentTrafficSlot(slot string) error {
@@ -196,42 +225,48 @@ func (cm *CaddyManager) SetAgentTrafficSlot(slot string) error {
 		return errors.New("invalid Caddy route handle")
 	}
 
-	updated := false
-	for i, h := range handle {
-		handleMap, ok := h.(map[string]any)
-		if !ok || handleMap["handler"] != "reverse_proxy" {
-			continue
-		}
-		upstreams, ok := handleMap["upstreams"].([]any)
+	rpHandle := findReverseProxyInHandles(handle)
+	if rpHandle == nil {
+		return errors.New("failed to find agent upstreams for weight update")
+	}
+
+	upstreams, ok := rpHandle["upstreams"].([]any)
+	if !ok {
+		return errors.New("failed to find agent upstreams for weight update")
+	}
+
+	greenIdx, blueIdx := -1, -1
+	for idx, u := range upstreams {
+		upstreamMap, ok := u.(map[string]any)
 		if !ok {
 			continue
 		}
-		changed := false
-		for _, u := range upstreams {
-			upstreamMap, ok := u.(map[string]any)
-			if !ok {
-				continue
-			}
-			dial, _ := upstreamMap["dial"].(string)
-			switch dial {
-			case fmt.Sprintf("localhost:%d", agentGreenPort):
-				upstreamMap["weight"] = targetGreen
-				changed = true
-			case fmt.Sprintf("localhost:%d", agentBluePort):
-				upstreamMap["weight"] = targetBlue
-				changed = true
-			}
-		}
-		handleMap["lb_policy"] = fmt.Sprintf("%d/%d", targetGreen, targetBlue)
-		if changed {
-			handle[i] = handleMap
-			updated = true
+		dial, _ := upstreamMap["dial"].(string)
+		switch dial {
+		case fmt.Sprintf("localhost:%d", agentGreenPort):
+			upstreamMap["weight"] = targetGreen
+			greenIdx = idx
+		case fmt.Sprintf("localhost:%d", agentBluePort):
+			upstreamMap["weight"] = targetBlue
+			blueIdx = idx
 		}
 	}
 
-	if !updated {
+	if greenIdx == -1 || blueIdx == -1 {
 		return errors.New("failed to find agent upstreams for weight update")
 	}
+
+	// Update load_balancing.selection_policy.weights if present (Caddyfile-configured routes).
+	if lb, ok := rpHandle["load_balancing"].(map[string]any); ok {
+		if sp, ok := lb["selection_policy"].(map[string]any); ok {
+			if w, ok := sp["weights"].([]any); ok && greenIdx < len(w) && blueIdx < len(w) {
+				w[greenIdx] = targetGreen
+				w[blueIdx] = targetBlue
+			}
+		}
+	}
+
+	rpHandle["lb_policy"] = fmt.Sprintf("%d/%d", targetGreen, targetBlue)
 
 	state.Route["handle"] = handle
 	if err := cm.putRoute(state.RouteIndex, state.Route); err != nil {
@@ -324,8 +359,10 @@ func extractAgentWeights(handle map[string]any, upstreams []any) (agentWeights, 
 	weights := agentWeights{}
 	foundGreen := false
 	foundBlue := false
+	greenIdx := -1
+	blueIdx := -1
 
-	for _, u := range upstreams {
+	for idx, u := range upstreams {
 		upstreamMap, ok := u.(map[string]any)
 		if !ok {
 			continue
@@ -339,15 +376,21 @@ func extractAgentWeights(handle map[string]any, upstreams []any) (agentWeights, 
 				weights.green = weight
 			}
 			foundGreen = true
+			greenIdx = idx
 		case fmt.Sprintf("localhost:%d", agentBluePort):
 			if hasWeight {
 				weights.blue = weight
 			}
 			foundBlue = true
+			blueIdx = idx
 		}
 	}
 
-	if foundGreen && foundBlue && (weights.green != 0 || weights.blue != 0) {
+	if !foundGreen || !foundBlue {
+		return weights, false
+	}
+
+	if weights.green != 0 || weights.blue != 0 {
 		return weights, true
 	}
 
@@ -356,7 +399,43 @@ func extractAgentWeights(handle map[string]any, upstreams []any) (agentWeights, 
 		return agentWeights{green: policyGreen, blue: policyBlue}, true
 	}
 
+	lbGreen, lbBlue, ok := loadBalancingWeights(handle, greenIdx, blueIdx)
+	if ok {
+		return agentWeights{green: lbGreen, blue: lbBlue}, true
+	}
+
 	return weights, false
+}
+
+func loadBalancingWeights(handle map[string]any, greenIdx, blueIdx int) (int, int, bool) {
+	lb, ok := handle["load_balancing"].(map[string]any)
+	if !ok {
+		return 0, 0, false
+	}
+	sp, ok := lb["selection_policy"].(map[string]any)
+	if !ok {
+		return 0, 0, false
+	}
+	raw, ok := sp["weights"].([]any)
+	if !ok || greenIdx >= len(raw) || blueIdx >= len(raw) {
+		return 0, 0, false
+	}
+	green, ok1 := jsonInt(raw[greenIdx])
+	blue, ok2 := jsonInt(raw[blueIdx])
+	if !ok1 || !ok2 {
+		return 0, 0, false
+	}
+	return green, blue, true
+}
+
+func jsonInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	}
+	return 0, false
 }
 
 func upstreamWeight(upstream map[string]any) (int, bool) {
